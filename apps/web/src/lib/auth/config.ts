@@ -31,12 +31,15 @@ const DISCORD_SCOPES = "identify email guilds.members.read";
  * Cloudflare Workers では request ごとに env が渡されるため、
  * ファクトリ関数にする。
  */
-export function createAuthConfig(env: {
-  DISCORD_CLIENT_ID: string;
-  DISCORD_CLIENT_SECRET: string;
-  AUTH_SECRET: string;
-  DATABASE_URL: string;
-}): AuthConfig {
+export function createAuthConfig(
+  env: {
+    DISCORD_CLIENT_ID: string;
+    DISCORD_CLIENT_SECRET: string;
+    AUTH_SECRET: string;
+    DATABASE_URL: string;
+  },
+  waitUntil?: (p: Promise<unknown>) => void,
+): AuthConfig {
   const db = createDb(env.DATABASE_URL);
 
   return {
@@ -139,8 +142,9 @@ export function createAuthConfig(env: {
 
         // Cloudflare Pages の isolate 間で globalThis は共有されないため
         // /api/debug から拾えるよう Neon に永続化する。
+        // waitUntil で Cloudflare に書き込み完了まで isolate を生かしてもらう。
         const sql = neon(env.DATABASE_URL);
-        Promise.resolve().then(async () => {
+        const writeJob = (async () => {
           try {
             await sql`CREATE TABLE IF NOT EXISTS auth_error_log (
               id SERIAL PRIMARY KEY,
@@ -156,7 +160,10 @@ export function createAuthConfig(env: {
           } catch (e) {
             console.error("[AuthError] failed to persist error to neon:", e);
           }
-        });
+        })();
+        if (waitUntil) {
+          waitUntil(writeJob);
+        }
       },
       warn(code, ...message) {
         console.warn("[AuthWarn]", code, ...message);

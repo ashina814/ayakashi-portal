@@ -9,6 +9,16 @@ export const GET: APIRoute = async ({ locals }) => {
     let recentAuthErrors: unknown[] = [];
     try {
       const sql = neon(env.DATABASE_URL);
+      // 初回アクセス時にテーブルが無くても落ちないように作る
+      await sql`CREATE TABLE IF NOT EXISTS auth_error_log (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        message TEXT,
+        cause TEXT,
+        stack TEXT,
+        extra TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`;
       recentAuthErrors = (await sql`
         SELECT id, name, message, cause, stack, extra, created_at
         FROM auth_error_log
