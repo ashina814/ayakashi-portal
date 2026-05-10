@@ -11,6 +11,7 @@
 
 import Discord from "@auth/core/providers/discord";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
+import { neon } from "@neondatabase/serverless";
 import { createDb } from "@ayakashi/db/client";
 import {
   users,
@@ -121,18 +122,41 @@ export function createAuthConfig(env: {
     logger: {
       error(code, ...message) {
         console.error("[AuthError]", code, ...message);
-        
-        let serializedError: any = code;
+
+        let name = "Error";
+        let msg = "";
+        let cause = "";
+        let stack = "";
         if (code instanceof Error) {
-          serializedError = {
-            name: code.name,
-            message: code.message,
-            cause: (code as any).cause instanceof Error ? (code as any).cause.message : (code as any).cause,
-            stack: code.stack,
-          };
+          name = code.name;
+          msg = code.message;
+          const c = (code as any).cause;
+          cause = c instanceof Error ? `${c.name}: ${c.message}` : (c ? String(c) : "");
+          stack = code.stack ?? "";
+        } else {
+          msg = String(code);
         }
 
-        (globalThis as any).lastAuthError = { code: serializedError, message, time: Date.now() };
+        // Cloudflare Pages の isolate 間で globalThis は共有されないため
+        // /api/debug から拾えるよう Neon に永続化する。
+        const sql = neon(env.DATABASE_URL);
+        Promise.resolve().then(async () => {
+          try {
+            await sql`CREATE TABLE IF NOT EXISTS auth_error_log (
+              id SERIAL PRIMARY KEY,
+              name TEXT,
+              message TEXT,
+              cause TEXT,
+              stack TEXT,
+              extra TEXT,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )`;
+            await sql`INSERT INTO auth_error_log (name, message, cause, stack, extra)
+              VALUES (${name}, ${msg}, ${cause}, ${stack}, ${JSON.stringify(message)})`;
+          } catch (e) {
+            console.error("[AuthError] failed to persist error to neon:", e);
+          }
+        });
       },
       warn(code, ...message) {
         console.warn("[AuthWarn]", code, ...message);
