@@ -126,6 +126,26 @@ export function createAuthConfig(
       error(code, ...message) {
         console.error("[AuthError]", code, ...message);
 
+        // 再帰的に Error の cause チェーンを文字列化する。
+        // AdapterError の cause は Error or 任意のオブジェクトのことが多い。
+        const serializeCause = (c: unknown, depth = 0): string => {
+          if (c == null) return "";
+          if (depth > 5) return "<max depth>";
+          if (c instanceof Error) {
+            const inner = (c as any).cause;
+            const innerStr = inner != null ? ` <- ${serializeCause(inner, depth + 1)}` : "";
+            return `${c.name}: ${c.message}${innerStr}`;
+          }
+          if (typeof c === "object") {
+            try {
+              return JSON.stringify(c, Object.getOwnPropertyNames(c));
+            } catch {
+              return "<unserializable>";
+            }
+          }
+          return String(c);
+        };
+
         let name = "Error";
         let msg = "";
         let cause = "";
@@ -133,8 +153,7 @@ export function createAuthConfig(
         if (code instanceof Error) {
           name = code.name;
           msg = code.message;
-          const c = (code as any).cause;
-          cause = c instanceof Error ? `${c.name}: ${c.message}` : (c ? String(c) : "");
+          cause = serializeCause((code as any).cause);
           stack = code.stack ?? "";
         } else {
           msg = String(code);
@@ -155,8 +174,22 @@ export function createAuthConfig(
               extra TEXT,
               created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )`;
+            const extraStr = JSON.stringify(
+              message,
+              (_k, v) => {
+                if (v instanceof Error) {
+                  return {
+                    name: v.name,
+                    message: v.message,
+                    cause: serializeCause((v as any).cause),
+                    stack: v.stack,
+                  };
+                }
+                return v;
+              },
+            );
             await sql`INSERT INTO auth_error_log (name, message, cause, stack, extra)
-              VALUES (${name}, ${msg}, ${cause}, ${stack}, ${JSON.stringify(message)})`;
+              VALUES (${name}, ${msg}, ${cause}, ${stack}, ${extraStr})`;
           } catch (e) {
             console.error("[AuthError] failed to persist error to neon:", e);
           }
