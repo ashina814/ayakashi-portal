@@ -12,6 +12,7 @@ export const GET: APIRoute = async ({ locals }) => {
         hasAuthSecret: !!env.AUTH_SECRET,
         hasGuildId: !!env.GUILD_ID,
         hasDbUrl: !!env.DATABASE_URL,
+        lastAuthError: (globalThis as any).lastAuthError || null,
       }),
       {
         headers: { "Content-Type": "application/json" },

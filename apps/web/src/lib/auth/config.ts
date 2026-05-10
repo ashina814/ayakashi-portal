@@ -116,7 +116,20 @@ export function createAuthConfig(env: {
       },
     },
 
-    // デバッグログ（production では false）
-    debug: false,
+    // エラー調査用に debug を有効化し、ロガーを設定
+    debug: true,
+    logger: {
+      error(code, ...message) {
+        console.error("[AuthError]", code, ...message);
+        // エラー内容を一時的にグローバルに保持（デバッグAPIで読めるようにする）
+        (globalThis as any).lastAuthError = { code, message, time: Date.now() };
+      },
+      warn(code, ...message) {
+        console.warn("[AuthWarn]", code, ...message);
+      },
+      debug(code, ...message) {
+        console.log("[AuthDebug]", code, ...message);
+      },
+    },
   };
 }
