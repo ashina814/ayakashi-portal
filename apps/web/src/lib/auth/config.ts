@@ -68,6 +68,7 @@ export function createAuthConfig(env: {
 
     trustHost: true,
     secret: env.AUTH_SECRET,
+    basePath: "/api/auth",
 
     // カスタムページ
     pages: {
