@@ -167,14 +167,16 @@ if (Astro.locals.session) {
   <body>
     <div class="login-container">
       <h1 class="server-name">妖ポータル</h1>
-      <a
-        id="login-button"
-        class="ofuda-button"
-        href="/api/auth/signin/discord"
-        title="Discord でログイン"
-      >
-        <span class="ofuda-text">参拝</span>
-      </a>
+      <form action="/api/auth/signin/discord" method="POST">
+        <button
+          type="submit"
+          id="login-button"
+          class="ofuda-button"
+          title="Discord でログイン"
+        >
+          <span class="ofuda-text">参拝</span>
+        </button>
+      </form>
     </div>
   </body>
 </html>
