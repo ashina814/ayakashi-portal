@@ -64,8 +64,8 @@ export function createAuthConfig(env: {
       maxAge: 14 * 24 * 60 * 60, // 14 days
     },
 
-    // Cloudflare Workers (reverse proxy 背後) では必須
     trustHost: true,
+    secret: env.AUTH_SECRET,
 
     // カスタムページ
     pages: {
