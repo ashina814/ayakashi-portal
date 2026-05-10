@@ -121,8 +121,18 @@ export function createAuthConfig(env: {
     logger: {
       error(code, ...message) {
         console.error("[AuthError]", code, ...message);
-        // エラー内容を一時的にグローバルに保持（デバッグAPIで読めるようにする）
-        (globalThis as any).lastAuthError = { code, message, time: Date.now() };
+        
+        let serializedError: any = code;
+        if (code instanceof Error) {
+          serializedError = {
+            name: code.name,
+            message: code.message,
+            cause: (code as any).cause instanceof Error ? (code as any).cause.message : (code as any).cause,
+            stack: code.stack,
+          };
+        }
+
+        (globalThis as any).lastAuthError = { code: serializedError, message, time: Date.now() };
       },
       warn(code, ...message) {
         console.warn("[AuthWarn]", code, ...message);
