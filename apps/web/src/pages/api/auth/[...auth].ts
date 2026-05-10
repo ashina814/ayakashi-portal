@@ -22,7 +22,9 @@ import { getEnv } from "../../../lib/auth/helpers";
  */
 const handler: APIRoute = async ({ request, locals }) => {
   const env = getEnv(locals);
-  const config = createAuthConfig(env);
+  const ctx = (locals as any).runtime?.ctx;
+  const waitUntil = ctx?.waitUntil ? ctx.waitUntil.bind(ctx) : undefined;
+  const config = createAuthConfig(env, waitUntil);
 
   return Auth(request, config);
 };
