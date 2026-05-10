@@ -7,15 +7,10 @@
  * 現段階では世界観を反映した最小限の UI を実装する。
  */
 
-import { getCsrfToken } from "../lib/auth/helpers";
-
 // 認証済みならハブへリダイレクト
 if (Astro.locals.session) {
   return Astro.redirect("/");
 }
-
-// Auth.js v5 は POST 送信時に CSRF トークンが必要
-const csrfToken = await getCsrfToken(Astro.request, Astro.locals);
 ---
 
 <html lang="ja">
@@ -173,7 +168,7 @@ const csrfToken = await getCsrfToken(Astro.request, Astro.locals);
     <div class="login-container">
       <h1 class="server-name">妖ポータル</h1>
       <form action="/api/auth/signin/discord" method="POST">
-        <input type="hidden" name="csrfToken" value={csrfToken} />
+        <input type="hidden" name="csrfToken" id="csrf-token" value="" />
         <button
           type="submit"
           id="login-button"
@@ -184,5 +179,23 @@ const csrfToken = await getCsrfToken(Astro.request, Astro.locals);
         </button>
       </form>
     </div>
+
+    <script>
+      // Auth.js v5 の要件: CSRF トークンの Cookie と input value を一致させる
+      // クライアントから取得することで、ブラウザに自動で Cookie がセットされる
+      async function setupCsrf() {
+        try {
+          const res = await fetch('/api/auth/csrf');
+          const data = await res.json();
+          const tokenInput = document.getElementById('csrf-token');
+          if (tokenInput && data.csrfToken) {
+            tokenInput.value = data.csrfToken;
+          }
+        } catch (e) {
+          console.error('Failed to fetch CSRF token:', e);
+        }
+      }
+      setupCsrf();
+    </script>
   </body>
 </html>
