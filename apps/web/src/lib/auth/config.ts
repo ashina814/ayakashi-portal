@@ -19,6 +19,8 @@ import {
   verificationTokens,
 } from "@ayakashi/db";
 import type { AuthConfig } from "@auth/core";
+import { fetchGuildMember } from "../discord/api";
+import { syncGuildMember } from "../repos/membership";
 
 /** Discord OAuth scope: identify + email + guilds.members.read */
 const DISCORD_SCOPES = "identify email guilds.members.read";
@@ -74,6 +76,34 @@ export function createAuthConfig(env: {
     },
 
     callbacks: {
+      /**
+       * サインイン時に Discord のメンバー情報を取得し DB に同期する
+       */
+      async signIn({ user, account }) {
+        if (
+          account?.provider === "discord" &&
+          account.access_token &&
+          env.GUILD_ID &&
+          user.id
+        ) {
+          try {
+            const discordMember = await fetchGuildMember(
+              account.access_token,
+              env.GUILD_ID,
+            );
+            if (discordMember) {
+              await syncGuildMember(db, user.id, discordMember);
+            } else {
+              console.warn(`[auth] User ${user.id} is not in guild ${env.GUILD_ID}`);
+              return false; // サーバーに未参加の場合はログインを拒否
+            }
+          } catch (e) {
+            console.error("[auth] Failed to sync guild member on sign in:", e);
+          }
+        }
+        return true;
+      },
+
       /**
        * セッションに userId を含める（DB セッション戦略の場合 user は自動で含まれる）
        */
