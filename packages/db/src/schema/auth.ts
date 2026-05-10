@@ -18,7 +18,7 @@ import {
 
 // ─── users ───────────────────────────────────────────────
 export const users = pgTable("users", {
-  id: text("id").primaryKey().notNull(),
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name"),
   email: text("email").unique(),
   emailVerified: timestamp("email_verified", {
