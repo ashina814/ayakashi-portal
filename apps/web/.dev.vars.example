@@ -1,0 +1,9 @@
+# Cloudflare Pages ローカル開発用環境変数
+# wrangler / platformProxy が読み込む
+# ※ .env ではなく .dev.vars を使うこと（Cloudflare の仕様）
+
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+AUTH_SECRET=
+DATABASE_URL=
+GUILD_ID=

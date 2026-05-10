@@ -9,15 +9,29 @@
 import { defineMiddleware } from "astro:middleware";
 import { getSession } from "./lib/auth/helpers";
 
+/** セッション取得をスキップするパス */
+const SKIP_PATHS = [
+  "/api/auth",  // Auth.js が処理する
+  "/api/health", // ヘルスチェック
+];
+
 export const onRequest = defineMiddleware(async (context, next) => {
-  // /api/auth/* は Auth.js が処理するのでスキップ
-  if (context.url.pathname.startsWith("/api/auth")) {
+  // Auth.js 関連パスやヘルスチェックはスキップ
+  const pathname = context.url.pathname;
+  if (SKIP_PATHS.some((p) => pathname.startsWith(p))) {
     return next();
   }
 
-  // セッション取得（未認証なら null）
-  const session = await getSession(context.request, context.locals);
-  context.locals.session = session;
+  // セッション取得を try-catch で囲む
+  // 環境変数未設定やDB未接続でもページが500にならないようにする
+  try {
+    const session = await getSession(context.request, context.locals);
+    context.locals.session = session;
+  } catch (error) {
+    // セッション取得失敗 = 未認証扱い
+    console.error("[middleware] Session fetch failed:", error);
+    context.locals.session = null;
+  }
 
   return next();
 });

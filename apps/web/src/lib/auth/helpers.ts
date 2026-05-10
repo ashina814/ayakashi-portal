@@ -20,28 +20,23 @@ export interface CloudflareEnv {
 }
 
 /**
- * Astro の locals.runtime.env から CloudflareEnv を取得する。
- * ローカル開発時は process.env からフォールバック。
+ * Astro の locals から CloudflareEnv を取得する。
+ *
+ * Cloudflare Pages: Astro.locals.runtime.env に環境変数が入る。
+ * ローカル dev（platformProxy 有効時）: 同じパスで .dev.vars から読まれる。
  */
 export function getEnv(locals: App.Locals): CloudflareEnv {
-  // Cloudflare Pages: locals.runtime.env に環境変数が入る
-  const runtime = (locals as Record<string, unknown>).runtime as
-    | { env: Record<string, string> }
-    | undefined;
-
+  // Astro + @astrojs/cloudflare: locals.runtime.env
+  const runtime = locals.runtime;
   if (runtime?.env) {
-    return runtime.env as unknown as CloudflareEnv;
+    return runtime.env as CloudflareEnv;
   }
 
-  // ローカル dev サーバーのフォールバック
-  return {
-    DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID ?? "",
-    DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET ?? "",
-    AUTH_SECRET: process.env.AUTH_SECRET ?? "",
-    DATABASE_URL: process.env.DATABASE_URL ?? "",
-    GUILD_ID: process.env.GUILD_ID ?? "",
-    TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
-  };
+  // フォールバック（万が一 runtime が無い場合）
+  throw new Error(
+    "[auth] Cloudflare runtime.env not found. " +
+    "Ensure @astrojs/cloudflare adapter is configured with platformProxy enabled.",
+  );
 }
 
 /**
