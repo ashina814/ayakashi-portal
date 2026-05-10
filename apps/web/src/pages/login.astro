@@ -1,0 +1,180 @@
+---
+/**
+ * ログイン画面
+ *
+ * M1a: Discord OAuth でのログイン機能を提供する。
+ * 演出は M4 で Three.js + GSAP に差し替え予定。
+ * 現段階では世界観を反映した最小限の UI を実装する。
+ */
+
+// 認証済みならハブへリダイレクト
+if (Astro.locals.session) {
+  return Astro.redirect("/");
+}
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>参拝 — 妖ポータル</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap");
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #0a0509;
+        color: #c8b880;
+        font-family: "Yuji Syuku", serif;
+        overflow: hidden;
+        position: relative;
+      }
+
+      /* 背景の霧エフェクト（CSS のみ、M4 で Three.js に置換） */
+      body::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse at 50% 80%,
+          rgba(100, 130, 180, 0.08) 0%,
+          transparent 60%
+        ),
+        radial-gradient(
+          ellipse at 50% 20%,
+          rgba(100, 130, 180, 0.05) 0%,
+          transparent 50%
+        );
+        pointer-events: none;
+      }
+
+      .login-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3rem;
+        z-index: 1;
+        animation: fadeIn 2s ease-out;
+      }
+
+      /* サーバー名 */
+      .server-name {
+        font-size: clamp(2rem, 6vw, 4rem);
+        letter-spacing: 0.3em;
+        text-shadow:
+          0 0 20px rgba(200, 184, 128, 0.3),
+          0 0 40px rgba(200, 184, 128, 0.1);
+      }
+
+      /* 御札ボタン */
+      .ofuda-button {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 4rem;
+        height: 10rem;
+        background: linear-gradient(
+          180deg,
+          #f5f0e1 0%,
+          #e8e0c8 50%,
+          #d4c8a0 100%
+        );
+        border: 2px solid #c8b880;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        box-shadow:
+          0 4px 20px rgba(0, 0, 0, 0.5),
+          0 0 15px rgba(200, 184, 128, 0.1);
+        animation: sway 4s ease-in-out infinite;
+      }
+
+      .ofuda-button:hover {
+        box-shadow:
+          0 4px 20px rgba(0, 0, 0, 0.5),
+          0 0 30px rgba(100, 130, 180, 0.3),
+          0 0 60px rgba(100, 130, 180, 0.1);
+        transform: scale(1.05);
+        animation-play-state: paused;
+      }
+
+      .ofuda-button:active {
+        transform: scale(0.98);
+      }
+
+      .ofuda-text {
+        writing-mode: vertical-rl;
+        font-family: "Yuji Syuku", serif;
+        font-size: 1.4rem;
+        color: #2a1a0a;
+        letter-spacing: 0.4em;
+        user-select: none;
+      }
+
+      /* 御札の揺れアニメーション */
+      @keyframes sway {
+        0%, 100% { transform: rotate(-0.5deg); }
+        50% { transform: rotate(0.5deg); }
+      }
+
+      /* フェードイン */
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* reduced motion 対応（引き継ぎ資料 §14） */
+      @media (prefers-reduced-motion: reduce) {
+        .ofuda-button {
+          animation: none;
+        }
+        .login-container {
+          animation: none;
+        }
+      }
+
+      /* 小さい端末 */
+      @media (max-width: 480px) {
+        .ofuda-button {
+          width: 3.5rem;
+          height: 8rem;
+        }
+        .ofuda-text {
+          font-size: 1.2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login-container">
+      <h1 class="server-name">妖ポータル</h1>
+      <a
+        id="login-button"
+        class="ofuda-button"
+        href="/api/auth/signin/discord"
+        title="Discord でログイン"
+      >
+        <span class="ofuda-text">参拝</span>
+      </a>
+    </div>
+  </body>
+</html>

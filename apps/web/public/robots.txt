@@ -1,0 +1,9 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Disallow: /me
+Disallow: /wiki/
+Disallow: /admin/
+Disallow: /api/
+
+# ログイン画面のみクロール許可（将来的にSEO考慮する場合）
+Allow: /$
