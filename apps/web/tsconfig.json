@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "astro"
+  },
+  "include": ["src/**/*", "astro.config.ts", "tailwind.config.ts"],
+  "exclude": ["node_modules", "dist", ".astro"]
+}

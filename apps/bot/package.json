@@ -1,0 +1,8 @@
+{
+  "name": "@ayakashi/bot",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "description": "妖ポータル Discord Bot（後付け実装予定）",
+  "scripts": {}
+}

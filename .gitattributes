@@ -1,0 +1,16 @@
+# 行末コード統一（Windows + macOS/Linux 混在対策）
+* text=auto eol=lf
+
+# バイナリとして扱うファイル
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+
+# lockfile は diff を出さない
+pnpm-lock.yaml -diff

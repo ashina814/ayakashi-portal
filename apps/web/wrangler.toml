@@ -1,0 +1,18 @@
+# =============================================
+# Cloudflare Pages — Functions 設定
+# =============================================
+# Astro の @astrojs/cloudflare adapter が自動生成する
+# _worker.js を Pages Functions として動かすための設定。
+#
+# 環境変数・シークレットは Cloudflare Dashboard から設定する。
+# このファイルには秘密情報を書かないこと。
+
+name = "ayakashi-portal"
+compatibility_date = "2025-01-01"
+
+# Node.js の組み込み API（crypto, buffer 等）を Workers で使えるようにする
+compatibility_flags = ["nodejs_compat"]
+
+# ローカル開発時の設定（wrangler pages dev 用）
+[vars]
+# 環境変数は .env から読み込まれるため、ここには書かない
