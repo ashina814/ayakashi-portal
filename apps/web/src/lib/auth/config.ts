@@ -55,15 +55,9 @@ export function createAuthConfig(
       Discord({
         clientId: env.DISCORD_CLIENT_ID,
         clientSecret: env.DISCORD_CLIENT_SECRET,
-        // デフォルト authorization は文字列 URL に scope が埋め込まれているため
-        // object 形式で完全に上書きして guilds.members.read を確実に含める。
-        authorization: {
-          url: "https://discord.com/api/oauth2/authorize",
-          params: {
-            scope: DISCORD_SCOPES,
-            prompt: "consent",
-          },
-        },
+        // Auth.js の merge() は string → object の型変換をサポートしていないため
+        // object 形式の override は無視される。string で渡すことで上書き可能。
+        authorization: `https://discord.com/api/oauth2/authorize?scope=${encodeURIComponent(DISCORD_SCOPES)}&prompt=consent`,
       }),
     ],
 
