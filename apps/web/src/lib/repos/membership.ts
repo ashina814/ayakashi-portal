@@ -52,6 +52,37 @@ export async function getMemberWithRoles(
   };
 }
 
+/** members.bio の最大文字数（クライアント / サーバー両方で参照） */
+export const BIO_MAX_LENGTH = 1000;
+
+/**
+ * 自己紹介を更新する。同期処理を介さず本人のみが書き込む想定。
+ * members 行が存在しない（同期前）場合は何もしないで false を返す。
+ */
+export async function updateMemberBio(
+  db: NeonHttpDatabase<any>,
+  userId: string,
+  bio: string,
+): Promise<boolean> {
+  const normalized = bio.trim();
+  if (normalized.length > BIO_MAX_LENGTH) {
+    throw new Error(
+      `bio is too long: ${normalized.length} > ${BIO_MAX_LENGTH}`,
+    );
+  }
+
+  const result = await db
+    .update(members)
+    .set({
+      bio: normalized.length === 0 ? null : normalized,
+      updatedAt: new Date(),
+    })
+    .where(eq(members.userId, userId))
+    .returning({ id: members.id });
+
+  return result.length > 0;
+}
+
 /**
  * ログイン時に Discord のメンバー情報を DB に同期する
  */

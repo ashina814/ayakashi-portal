@@ -1,14 +1,17 @@
 ---
 /**
- * /me — マイページ（M1b 読み取り専用版）
+ * /me — マイページ
  *
- * 表示: アバター, 表示名, ニックネーム, 入鯖日, ロール一覧
- * M2 で自己紹介編集・設定を追加予定。
+ * 表示: アバター, 表示名, ニックネーム, 入鯖日, ロール一覧, 自己紹介
+ * 自己紹介は ?edit=1 で textarea を開いて POST /api/me/bio で更新する。
  */
 
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../lib/auth/helpers";
-import { getMemberWithRoles } from "../lib/repos/membership";
+import {
+  getMemberWithRoles,
+  BIO_MAX_LENGTH,
+} from "../lib/repos/membership";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
@@ -28,6 +31,9 @@ const joinedAtLabel = member?.joinedAt
       day: "numeric",
     }).format(member.joinedAt)
   : "—";
+
+const isEditing = Astro.url.searchParams.get("edit") === "1";
+const bio = member?.bio ?? "";
 ---
 
 <html lang="ja">
@@ -136,6 +142,85 @@ const joinedAtLabel = member?.joinedAt
         font-size: 0.9rem;
       }
 
+      .bio-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      .bio-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+
+      .bio-header .label { opacity: 0.55; font-size: 0.95rem; }
+
+      .bio-header a {
+        color: #c8b880;
+        text-decoration: none;
+        font-size: 0.85rem;
+        opacity: 0.7;
+        border-bottom: 1px solid rgba(200, 184, 128, 0.3);
+      }
+      .bio-header a:hover { opacity: 1; }
+
+      .bio-text {
+        white-space: pre-wrap;
+        line-height: 1.8;
+        font-size: 0.95rem;
+        min-height: 1.8em;
+      }
+
+      .bio-form { display: flex; flex-direction: column; gap: 0.75rem; }
+
+      .bio-form textarea {
+        background: rgba(10, 5, 9, 0.5);
+        border: 1px solid rgba(200, 184, 128, 0.3);
+        border-radius: 6px;
+        color: #c8b880;
+        font-family: inherit;
+        font-size: 0.95rem;
+        line-height: 1.7;
+        padding: 0.75rem 1rem;
+        resize: vertical;
+        min-height: 7rem;
+      }
+
+      .bio-form textarea:focus {
+        outline: none;
+        border-color: rgba(200, 184, 128, 0.6);
+      }
+
+      .bio-form .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.82rem;
+        opacity: 0.7;
+      }
+
+      .bio-form .actions { display: flex; gap: 1rem; }
+
+      .bio-form button,
+      .bio-form a.btn {
+        background: transparent;
+        color: #c8b880;
+        border: 1px solid rgba(200, 184, 128, 0.4);
+        padding: 0.4rem 1.1rem;
+        border-radius: 999px;
+        font-family: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.2s;
+      }
+
+      .bio-form button:hover,
+      .bio-form a.btn:hover {
+        background: rgba(200, 184, 128, 0.1);
+      }
+
       .logout {
         text-align: center;
         font-size: 0.85rem;
@@ -199,6 +284,42 @@ const joinedAtLabel = member?.joinedAt
             )}
           </dd>
         </dl>
+      </section>
+
+      <section class="card bio-section">
+        <div class="bio-header">
+          <span class="label">己が言の葉</span>
+          {!isEditing && (
+            <a href="/me?edit=1">編集する</a>
+          )}
+        </div>
+
+        {isEditing ? (
+          <form
+            class="bio-form"
+            method="POST"
+            action="/api/me/bio"
+          >
+            <textarea
+              name="bio"
+              maxlength={BIO_MAX_LENGTH}
+              placeholder="己を語れ"
+            >{bio}</textarea>
+            <div class="footer">
+              <span>最大 {BIO_MAX_LENGTH} 文字</span>
+              <div class="actions">
+                <a class="btn" href="/me">取り消す</a>
+                <button type="submit">封ずる</button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <div class="bio-text">
+            {bio.length > 0 ? bio : (
+              <span class="empty">（まだ何も記されていない）</span>
+            )}
+          </div>
+        )}
       </section>
 
       <div class="logout">
