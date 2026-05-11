@@ -2,8 +2,9 @@
 /**
  * /wiki/[slug] — ページ詳細
  *
- * 本文はプレーンテキスト表示（pre-wrap）。
- * Markdown レンダリング + サニタイズは M3c で追加。
+ * 本文は Tiptap JSON（または旧プレーンテキスト）をサーバーサイドで HTML に
+ * レンダリングして表示する。XSS 対策はレンダラ側（apps/web/src/lib/wiki/render.ts）。
+ * 章ナビ・採番・カスタムノードは PR 2 で追加。
  */
 
 import AppShell from "../../layouts/AppShell.astro";
@@ -56,8 +57,8 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     </span>
   </header>
 
-  {page.content.length > 0 ? (
-    <article class="content">{page.content}</article>
+  {page.contentHtml.length > 0 ? (
+    <article class="prose" set:html={page.contentHtml} />
   ) : (
     <article class="empty">（まだ本文が書かれていない）</article>
   )}
@@ -77,7 +78,7 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     gap: 0.5rem;
     border-bottom: 1px solid rgba(184, 149, 64, 0.15);
     padding-bottom: 1.25rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
   }
 
   h1 {
@@ -90,14 +91,112 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     color: var(--text-muted);
   }
 
-  .content {
-    white-space: pre-wrap;
-    line-height: 1.9;
-    font-size: 0.98rem;
-  }
-
   .empty {
     color: var(--text-muted);
     font-size: 0.9rem;
+  }
+
+  /* ── レンダリング後の本文スタイル ── */
+  .prose {
+    line-height: 1.9;
+    font-size: 0.98rem;
+    color: var(--text-primary);
+  }
+
+  .prose :global(h2) {
+    font-size: 1.5rem;
+    letter-spacing: 0.08em;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid rgba(184, 149, 64, 0.2);
+  }
+
+  .prose :global(h3) {
+    font-size: 1.2rem;
+    letter-spacing: 0.06em;
+    margin-top: 2rem;
+    margin-bottom: 0.6rem;
+    color: var(--color-gold-300);
+  }
+
+  .prose :global(h4) {
+    font-size: 1.05rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.4rem;
+    color: var(--text-secondary);
+  }
+
+  .prose :global(p) {
+    margin-block: 0.85rem;
+  }
+
+  .prose :global(ul),
+  .prose :global(ol) {
+    margin-block: 0.85rem;
+    padding-left: 1.5rem;
+  }
+  .prose :global(li) {
+    margin-block: 0.2rem;
+  }
+  .prose :global(li::marker) {
+    color: var(--color-gold-500);
+  }
+
+  .prose :global(blockquote) {
+    margin: 1.25rem 0;
+    padding: 0.75rem 1.25rem;
+    border-left: 3px solid var(--color-gold-700);
+    background: rgba(184, 149, 64, 0.04);
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
+  .prose :global(code) {
+    background: rgba(10, 5, 9, 0.5);
+    border: 1px solid var(--border-base);
+    border-radius: 3px;
+    padding: 0.05rem 0.35rem;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.88em;
+    color: var(--color-mist-100);
+  }
+
+  .prose :global(pre) {
+    background: rgba(10, 5, 9, 0.5);
+    border: 1px solid var(--border-base);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.65;
+  }
+  .prose :global(pre code) {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+  }
+
+  .prose :global(hr) {
+    border: none;
+    border-top: 1px solid rgba(184, 149, 64, 0.18);
+    margin: 2.5rem 0;
+  }
+
+  .prose :global(strong) { color: var(--color-gold-100); font-weight: 600; }
+  .prose :global(em) { font-style: italic; }
+  .prose :global(s) { color: var(--text-muted); }
+  .prose :global(u) { text-decoration-color: var(--color-gold-500); }
+
+  .prose :global(a) {
+    color: var(--color-gold-300);
+    border-bottom: 1px solid rgba(224, 198, 132, 0.4);
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  .prose :global(a:hover) {
+    color: var(--color-gold-100);
+    border-bottom-color: var(--color-gold-100);
   }
 </style>
