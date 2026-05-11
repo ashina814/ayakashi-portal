@@ -5,7 +5,7 @@
  * 編集系（書き込み・楽観ロック・サニタイズ）は M3c で追加予定。
  */
 
-import { and, desc, eq, exists, inArray, notExists, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
 
@@ -24,25 +24,28 @@ export interface WikiPageDetail extends WikiPageListItem {
 /**
  * 閲覧可否の SQL 条件: visibility 行が無い（public）か、
  * いずれかの required_role_alias がユーザーの alias 集合に含まれる。
+ *
+ * drizzle-orm の exists/notExists ヘルパは subquery を () で包まないため
+ * 生 SQL で組み立てる。
  */
 function buildVisibilityFilter(aliases: string[]) {
-  const noVisibility = notExists(
-    sql`select 1 from ${wikiVisibility}
-        where ${wikiVisibility.pageId} = ${wikiPages.id}`,
-  );
-
   if (aliases.length === 0) {
-    // alias を1つも持たないユーザーは public ページのみ
-    return noVisibility;
+    return sql`NOT EXISTS (
+      SELECT 1 FROM ${wikiVisibility}
+      WHERE ${wikiVisibility.pageId} = ${wikiPages.id}
+    )`;
   }
-
-  const hasMatchingAlias = exists(
-    sql`select 1 from ${wikiVisibility}
-        where ${wikiVisibility.pageId} = ${wikiPages.id}
-          and ${inArray(wikiVisibility.requiredRoleAlias, aliases)}`,
-  );
-
-  return or(noVisibility, hasMatchingAlias);
+  return sql`(
+    NOT EXISTS (
+      SELECT 1 FROM ${wikiVisibility}
+      WHERE ${wikiVisibility.pageId} = ${wikiPages.id}
+    )
+    OR EXISTS (
+      SELECT 1 FROM ${wikiVisibility}
+      WHERE ${wikiVisibility.pageId} = ${wikiPages.id}
+        AND ${inArray(wikiVisibility.requiredRoleAlias, aliases)}
+    )
+  )`;
 }
 
 /**
