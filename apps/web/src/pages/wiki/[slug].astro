@@ -9,6 +9,7 @@
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
 import { getPageBySlug } from "../../lib/repos/wiki";
+import { getMemberRoleAliases } from "../../lib/repos/membership";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
@@ -21,7 +22,11 @@ if (!slug) {
 
 const env = getEnv(Astro.locals);
 const db = createDb(env.DATABASE_URL);
-const page = await getPageBySlug(db, slug);
+
+const userId =
+  (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+const page = await getPageBySlug(db, slug, aliases);
 
 if (!page) {
   return new Response(null, { status: 404, statusText: "Not Found" });
