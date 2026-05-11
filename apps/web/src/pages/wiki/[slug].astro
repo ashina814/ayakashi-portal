@@ -1,0 +1,129 @@
+---
+/**
+ * /wiki/[slug] — ページ詳細（M3a プレーンテキスト表示）
+ *
+ * 本文は wiki_revisions.content をそのまま改行保持で表示する。
+ * Markdown レンダリング + サニタイズは M3c で追加。
+ */
+
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../../lib/auth/helpers";
+import { getPageBySlug } from "../../lib/repos/wiki";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const { slug } = Astro.params;
+if (!slug) {
+  return Astro.redirect("/wiki");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+const page = await getPageBySlug(db, slug);
+
+if (!page) {
+  return new Response(null, { status: 404, statusText: "Not Found" });
+}
+
+const fmtDate = new Intl.DateTimeFormat("ja-JP", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{page.title} — 巻物の蔵</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap");
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        min-height: 100dvh;
+        background: #0a0509;
+        color: #c8b880;
+        font-family: "Yuji Syuku", serif;
+        padding: 3rem 1.5rem;
+      }
+
+      .container {
+        max-width: 720px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.9rem;
+        opacity: 0.6;
+      }
+
+      .topbar a {
+        color: #c8b880;
+        text-decoration: none;
+      }
+      .topbar a:hover { opacity: 1; }
+
+      header.page-header {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        border-bottom: 1px solid rgba(200, 184, 128, 0.15);
+        padding-bottom: 1.25rem;
+      }
+
+      h1 {
+        font-size: clamp(1.6rem, 4vw, 2.4rem);
+        letter-spacing: 0.12em;
+      }
+
+      .meta {
+        font-size: 0.78rem;
+        opacity: 0.5;
+      }
+
+      .content {
+        white-space: pre-wrap;
+        line-height: 1.9;
+        font-size: 0.98rem;
+      }
+
+      .empty-content {
+        opacity: 0.45;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <nav class="topbar">
+        <a href="/wiki">← 巻物の蔵</a>
+        <span>{page.title}</span>
+      </nav>
+
+      <header class="page-header">
+        <h1>{page.title}</h1>
+        <span class="meta">
+          最終更新: {fmtDate.format(page.revisionCreatedAt ?? page.updatedAt)}
+        </span>
+      </header>
+
+      {page.content.length > 0 ? (
+        <article class="content">{page.content}</article>
+      ) : (
+        <article class="empty-content">（まだ本文が書かれていない）</article>
+      )}
+    </div>
+  </body>
+</html>
