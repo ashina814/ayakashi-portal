@@ -8,6 +8,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
+import { renderWikiContent } from "../wiki/render";
 
 export interface WikiPageListItem {
   id: string;
@@ -17,7 +18,10 @@ export interface WikiPageListItem {
 }
 
 export interface WikiPageDetail extends WikiPageListItem {
+  /** 保存されている生の content（Tiptap JSON 文字列 or レガシープレーンテキスト） */
   content: string;
+  /** サーバーサイドでレンダリング済みの HTML（描画用） */
+  contentHtml: string;
   revisionCreatedAt: Date | null;
 }
 
@@ -106,6 +110,7 @@ export async function getPageBySlug(
     title: page.title,
     updatedAt: page.updatedAt,
     content,
+    contentHtml: renderWikiContent(content),
     revisionCreatedAt,
   };
 }
