@@ -1,0 +1,249 @@
+---
+/**
+ * AppShell — 認証済みページの共通レイアウト
+ *
+ * 左サイドバー（ナビ + ユーザー情報）+ メインカラム。
+ * 1024px 未満ではサイドバーが上部に畳まれる。
+ * デザインシステム §5.2 に従い main は max-w-screen-lg に制限。
+ *
+ * Props:
+ *   title           : <title> 文字列
+ *   active          : "home" | "me" | "wiki" (現在ハイライトしたい項目)
+ *   contentVariant  : "default" | "prose"  (proseはWiki本文用、max-w-prose)
+ */
+
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  active?: "home" | "me" | "wiki";
+  contentVariant?: "default" | "prose";
+}
+
+const { title, active, contentVariant = "default" } = Astro.props;
+
+const session = Astro.locals.session;
+const user = session?.user;
+
+const navItems = [
+  { key: "home", href: "/", label: "ハブ" },
+  { key: "me", href: "/me", label: "マイページ" },
+  { key: "wiki", href: "/wiki", label: "巻物の蔵" },
+] as const;
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap"
+    />
+  </head>
+  <body class="bg-ink-950 text-gold-100 min-h-dvh">
+    <div class="shell">
+      <aside class="sidebar">
+        <a href="/" class="brand">
+          <span class="brand-mark" aria-hidden="true">妖</span>
+          <span class="brand-name">妖ポータル</span>
+        </a>
+
+        <nav class="nav" aria-label="主要ナビゲーション">
+          {navItems.map((item) => (
+            <a
+              href={item.href}
+              class:list={["nav-item", { active: active === item.key }]}
+              aria-current={active === item.key ? "page" : undefined}
+            >
+              <span class="nav-label">{item.label}</span>
+            </a>
+          ))}
+        </nav>
+
+        <div class="user-footer">
+          {user?.image && (
+            <img
+              class="avatar"
+              src={user.image}
+              alt=""
+              width="40"
+              height="40"
+            />
+          )}
+          <div class="user-meta">
+            <span class="user-name">{user?.name ?? "—"}</span>
+            <a class="logout" href="/api/auth/signout">退散</a>
+          </div>
+        </div>
+      </aside>
+
+      <main class:list={["main", `main-${contentVariant}`]}>
+        <slot />
+      </main>
+    </div>
+
+    <style>
+      .shell {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        min-height: 100dvh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        padding: 1.75rem 1.25rem;
+        background: var(--bg-surface);
+        border-right: 1px solid var(--border-base);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: var(--text-primary);
+        padding: 0.25rem 0.5rem;
+      }
+      .brand:hover { color: var(--color-gold-300); }
+
+      .brand-mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        font-size: 1.1rem;
+        color: var(--color-gold-100);
+        border: 1px solid var(--color-gold-700);
+        border-radius: 4px;
+      }
+      .brand-name {
+        font-family: "Yuji Syuku", serif;
+        letter-spacing: 0.12em;
+        font-size: 1rem;
+      }
+
+      .nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+      }
+
+      .nav-item {
+        display: block;
+        padding: 0.6rem 0.85rem;
+        border-radius: 6px;
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        letter-spacing: 0.06em;
+        border-left: 2px solid transparent;
+        transition: background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out);
+      }
+      .nav-item:hover {
+        background: rgba(184, 149, 64, 0.06);
+        color: var(--color-gold-100);
+      }
+      .nav-item.active {
+        color: var(--color-gold-100);
+        background: rgba(184, 149, 64, 0.08);
+        border-left-color: var(--color-gold-500);
+      }
+
+      .user-footer {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-base);
+      }
+
+      .avatar {
+        border-radius: 50%;
+        border: 1px solid rgba(184, 149, 64, 0.3);
+      }
+
+      .user-meta {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        flex: 1;
+      }
+
+      .user-name {
+        font-size: 0.88rem;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .logout {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+      .logout:hover { color: var(--color-gold-300); }
+
+      .main {
+        padding: 3rem clamp(1.5rem, 4vw, 3rem);
+      }
+      .main-default > :global(*) {
+        max-width: 64rem; /* screen-lg 相当 */
+        margin-inline: auto;
+      }
+      .main-prose > :global(*) {
+        max-width: 42rem; /* ~65ch */
+        margin-inline: auto;
+      }
+
+      /* タブレット未満: サイドバーを上部に */
+      @media (max-width: 900px) {
+        .shell { grid-template-columns: 1fr; }
+        .sidebar {
+          position: static;
+          height: auto;
+          flex-direction: row;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 1rem;
+          padding: 1rem 1.25rem;
+        }
+        .nav {
+          flex-direction: row;
+          flex: 1;
+          flex-wrap: wrap;
+          gap: 0.25rem;
+          overflow: visible;
+        }
+        .nav-item {
+          padding: 0.4rem 0.75rem;
+          border-left: none;
+          border-bottom: 2px solid transparent;
+        }
+        .nav-item.active {
+          border-left: none;
+          border-bottom-color: var(--color-gold-500);
+        }
+        .user-footer {
+          padding-top: 0;
+          border-top: none;
+          border-left: 1px solid var(--border-base);
+          padding-left: 1rem;
+        }
+        .main { padding: 2rem 1.5rem; }
+      }
+    </style>
+  </body>
+</html>

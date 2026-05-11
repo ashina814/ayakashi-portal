@@ -6,6 +6,7 @@
  * 自己紹介は ?edit=1 で textarea を開いて POST /api/me/bio で更新する。
  */
 
+import AppShell from "../layouts/AppShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../lib/auth/helpers";
 import {
@@ -36,295 +37,173 @@ const isEditing = Astro.url.searchParams.get("edit") === "1";
 const bio = member?.bio ?? "";
 ---
 
-<html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="robots" content="noindex,nofollow" />
-    <title>マイページ — 妖ポータル</title>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap");
+<AppShell title="マイページ — 妖ポータル" active="me">
+  <h1 class="page-title">己が記録</h1>
 
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-
-      body {
-        min-height: 100dvh;
-        background: #0a0509;
-        color: #c8b880;
-        font-family: "Yuji Syuku", serif;
-        padding: 3rem 1.5rem;
-      }
-
-      .container {
-        max-width: 720px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-        gap: 2rem;
-      }
-
-      .topbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.9rem;
-        opacity: 0.6;
-      }
-
-      .topbar a {
-        color: #c8b880;
-        text-decoration: none;
-      }
-      .topbar a:hover { opacity: 1; }
-
-      h1 {
-        font-size: clamp(1.6rem, 4vw, 2.4rem);
-        letter-spacing: 0.18em;
-        text-align: center;
-      }
-
-      .card {
-        padding: 2rem;
-        border: 1px solid rgba(200, 184, 128, 0.2);
-        border-radius: 10px;
-        background: rgba(200, 184, 128, 0.03);
-      }
-
-      .profile {
-        display: flex;
-        align-items: center;
-        gap: 1.5rem;
-        margin-bottom: 1.5rem;
-      }
-
-      .avatar {
-        width: 84px;
-        height: 84px;
-        border-radius: 50%;
-        border: 2px solid rgba(200, 184, 128, 0.3);
-      }
-
-      .name {
-        font-size: 1.25rem;
-        line-height: 1.5;
-      }
-
-      .nick {
-        font-size: 0.9rem;
-        opacity: 0.6;
-      }
-
-      dl {
-        display: grid;
-        grid-template-columns: 8rem 1fr;
-        gap: 0.75rem 1.25rem;
-        font-size: 0.95rem;
-      }
-
-      dt { opacity: 0.55; }
-
-      .roles {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-      }
-
-      .role-chip {
-        padding: 0.2rem 0.7rem;
-        font-size: 0.82rem;
-        border: 1px solid currentColor;
-        border-radius: 999px;
-        line-height: 1.6;
-      }
-
-      .empty {
-        opacity: 0.45;
-        font-size: 0.9rem;
-      }
-
-      .bio-section {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-      }
-
-      .bio-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-      }
-
-      .bio-header .label { opacity: 0.55; font-size: 0.95rem; }
-
-      .bio-header a {
-        color: #c8b880;
-        text-decoration: none;
-        font-size: 0.85rem;
-        opacity: 0.7;
-        border-bottom: 1px solid rgba(200, 184, 128, 0.3);
-      }
-      .bio-header a:hover { opacity: 1; }
-
-      .bio-text {
-        white-space: pre-wrap;
-        line-height: 1.8;
-        font-size: 0.95rem;
-        min-height: 1.8em;
-      }
-
-      .bio-form { display: flex; flex-direction: column; gap: 0.75rem; }
-
-      .bio-form textarea {
-        background: rgba(10, 5, 9, 0.5);
-        border: 1px solid rgba(200, 184, 128, 0.3);
-        border-radius: 6px;
-        color: #c8b880;
-        font-family: inherit;
-        font-size: 0.95rem;
-        line-height: 1.7;
-        padding: 0.75rem 1rem;
-        resize: vertical;
-        min-height: 7rem;
-      }
-
-      .bio-form textarea:focus {
-        outline: none;
-        border-color: rgba(200, 184, 128, 0.6);
-      }
-
-      .bio-form .footer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.82rem;
-        opacity: 0.7;
-      }
-
-      .bio-form .actions { display: flex; gap: 1rem; }
-
-      .bio-form button,
-      .bio-form a.btn {
-        background: transparent;
-        color: #c8b880;
-        border: 1px solid rgba(200, 184, 128, 0.4);
-        padding: 0.4rem 1.1rem;
-        border-radius: 999px;
-        font-family: inherit;
-        font-size: 0.85rem;
-        cursor: pointer;
-        text-decoration: none;
-        transition: background 0.2s;
-      }
-
-      .bio-form button:hover,
-      .bio-form a.btn:hover {
-        background: rgba(200, 184, 128, 0.1);
-      }
-
-      .logout {
-        text-align: center;
-        font-size: 0.85rem;
-        opacity: 0.55;
-      }
-
-      .logout a {
-        color: #c8b880;
-        text-decoration: none;
-        border-bottom: 1px solid rgba(200, 184, 128, 0.3);
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <nav class="topbar">
-        <a href="/">← 戻る</a>
-        <span>マイページ</span>
-      </nav>
-
-      <h1>己が記録</h1>
-
-      <section class="card">
-        <div class="profile">
-          {user?.image && (
-            <img
-              class="avatar"
-              src={user.image}
-              alt={user.name ?? "ユーザー"}
-              width="84"
-              height="84"
-            />
-          )}
-          <div>
-            <div class="name">{user?.name ?? "名無しの妖"}</div>
-            {member?.nickname && (
-              <div class="nick">サーバー内呼び名: {member.nickname}</div>
-            )}
-          </div>
-        </div>
-
-        <dl>
-          <dt>入鯖日</dt>
-          <dd>{joinedAtLabel}</dd>
-
-          <dt>ロール</dt>
-          <dd>
-            {member && member.roles.length > 0 ? (
-              <div class="roles">
-                {member.roles.map((r) => (
-                  <span
-                    class="role-chip"
-                    style={r.color ? `color: ${r.color};` : ""}
-                  >
-                    {r.name}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <span class="empty">（取得中、または所属ロールなし）</span>
-            )}
-          </dd>
-        </dl>
-      </section>
-
-      <section class="card bio-section">
-        <div class="bio-header">
-          <span class="label">己が言の葉</span>
-          {!isEditing && (
-            <a href="/me?edit=1">編集する</a>
-          )}
-        </div>
-
-        {isEditing ? (
-          <form
-            class="bio-form"
-            method="POST"
-            action="/api/me/bio"
-          >
-            <textarea
-              name="bio"
-              maxlength={BIO_MAX_LENGTH}
-              placeholder="己を語れ"
-            >{bio}</textarea>
-            <div class="footer">
-              <span>最大 {BIO_MAX_LENGTH} 文字</span>
-              <div class="actions">
-                <a class="btn" href="/me">取り消す</a>
-                <button type="submit">封ずる</button>
-              </div>
-            </div>
-          </form>
-        ) : (
-          <div class="bio-text">
-            {bio.length > 0 ? bio : (
-              <span class="empty">（まだ何も記されていない）</span>
-            )}
-          </div>
+  <section class="card">
+    <div class="profile">
+      {user?.image && (
+        <img
+          class="avatar-lg"
+          src={user.image}
+          alt={user.name ?? "ユーザー"}
+          width="84"
+          height="84"
+        />
+      )}
+      <div>
+        <div class="name">{user?.name ?? "名無しの妖"}</div>
+        {member?.nickname && (
+          <div class="nick">サーバー内呼び名: {member.nickname}</div>
         )}
-      </section>
-
-      <div class="logout">
-        <a href="/api/auth/signout">退出する</a>
       </div>
     </div>
-  </body>
-</html>
+
+    <dl class="profile-dl">
+      <dt>入鯖日</dt>
+      <dd>{joinedAtLabel}</dd>
+
+      <dt>ロール</dt>
+      <dd>
+        {member && member.roles.length > 0 ? (
+          <div class="roles">
+            {member.roles.map((r) => (
+              <span
+                class="role-chip"
+                style={r.color ? `color: ${r.color};` : ""}
+              >
+                {r.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span class="empty">（取得中、または所属ロールなし）</span>
+        )}
+      </dd>
+    </dl>
+  </section>
+
+  <section class="card bio-section">
+    <div class="bio-header">
+      <span class="label">己が言の葉</span>
+      {!isEditing && <a class="bio-edit" href="/me?edit=1">編集する</a>}
+    </div>
+
+    {isEditing ? (
+      <form class="bio-form" method="POST" action="/api/me/bio">
+        <textarea
+          class="ay-textarea"
+          name="bio"
+          maxlength={BIO_MAX_LENGTH}
+          placeholder="己を語れ"
+        >{bio}</textarea>
+        <div class="bio-footer">
+          <span class="bio-hint">最大 {BIO_MAX_LENGTH} 文字</span>
+          <div class="bio-actions">
+            <a class="ay-btn ay-btn-ghost" href="/me">取り消す</a>
+            <button class="ay-btn" type="submit">封ずる</button>
+          </div>
+        </div>
+      </form>
+    ) : (
+      <div class="bio-text">
+        {bio.length > 0 ? bio : (
+          <span class="empty">（まだ何も記されていない）</span>
+        )}
+      </div>
+    )}
+  </section>
+</AppShell>
+
+<style>
+  .page-title {
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: 0.18em;
+    margin-bottom: 1.5rem;
+  }
+
+  .card {
+    background: var(--bg-elevated);
+    border-radius: 10px;
+    box-shadow: var(--elev-1);
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .profile {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .avatar-lg {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: 2px solid rgba(184, 149, 64, 0.3);
+  }
+
+  .name {
+    font-size: 1.25rem;
+    line-height: 1.5;
+  }
+
+  .nick {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
+
+  .profile-dl {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    gap: 0.75rem 1.25rem;
+    font-size: 0.95rem;
+  }
+  .profile-dl dt { color: var(--text-muted); }
+
+  .roles { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+  .role-chip {
+    padding: 0.2rem 0.7rem;
+    font-size: 0.82rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+  }
+
+  .empty {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  .bio-section { display: flex; flex-direction: column; gap: 0.75rem; }
+  .bio-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .bio-header .label {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
+  .bio-edit {
+    font-size: 0.85rem;
+  }
+
+  .bio-text {
+    white-space: pre-wrap;
+    line-height: 1.9;
+    font-size: 0.95rem;
+    min-height: 1.8em;
+  }
+
+  .bio-form { display: flex; flex-direction: column; gap: 0.75rem; }
+  .bio-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+  }
+  .bio-hint { color: var(--text-muted); }
+  .bio-actions { display: flex; gap: 0.75rem; }
+</style>

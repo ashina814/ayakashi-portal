@@ -1,10 +1,12 @@
 ---
 /**
- * /wiki — ページ一覧（M3a 読み取り専用）
+ * /wiki — ページ一覧
  *
- * 公開範囲制限は M3b、編集は M3c で追加。
+ * 公開範囲制限は M3b で適用済み（getMemberRoleAliases → listPages）。
+ * 編集 UI は M3c で追加。
  */
 
+import AppShell from "../../layouts/AppShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
 import { listPages } from "../../lib/repos/wiki";
@@ -29,116 +31,79 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
 });
 ---
 
-<html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="robots" content="noindex,nofollow" />
-    <title>巻物の蔵 — 妖ポータル</title>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap");
+<AppShell title="巻物の蔵 — 妖ポータル" active="wiki">
+  <header class="header">
+    <h1>巻物の蔵</h1>
+    <p class="lede">妖たちが綴った記録の一覧。</p>
+  </header>
 
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+  <section class="pages">
+    {pages.length === 0 ? (
+      <div class="empty">まだ何も記されていない</div>
+    ) : (
+      pages.map((p) => (
+        <a class="page-link" href={`/wiki/${p.slug}`}>
+          <span class="title">{p.title}</span>
+          <span class="updated">{fmtDate.format(p.updatedAt)}</span>
+        </a>
+      ))
+    )}
+  </section>
+</AppShell>
 
-      body {
-        min-height: 100dvh;
-        background: #0a0509;
-        color: #c8b880;
-        font-family: "Yuji Syuku", serif;
-        padding: 3rem 1.5rem;
-      }
+<style>
+  .header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+  h1 {
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: 0.18em;
+  }
+  .lede {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+  }
 
-      .container {
-        max-width: 720px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-        gap: 2rem;
-      }
+  .pages {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    overflow: hidden;
+  }
 
-      .topbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.9rem;
-        opacity: 0.6;
-      }
+  .page-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    color: var(--text-primary);
+    border-top: 1px solid rgba(184, 149, 64, 0.08);
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .page-link:first-child { border-top: none; }
+  .page-link:hover { background: rgba(184, 149, 64, 0.06); }
 
-      .topbar a {
-        color: #c8b880;
-        text-decoration: none;
-      }
-      .topbar a:hover { opacity: 1; }
+  .title {
+    font-size: 1.05rem;
+    letter-spacing: 0.06em;
+  }
 
-      h1 {
-        font-size: clamp(1.6rem, 4vw, 2.4rem);
-        letter-spacing: 0.18em;
-        text-align: center;
-      }
+  .updated {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
 
-      .pages {
-        display: flex;
-        flex-direction: column;
-        border: 1px solid rgba(200, 184, 128, 0.2);
-        border-radius: 10px;
-        background: rgba(200, 184, 128, 0.03);
-        overflow: hidden;
-      }
-
-      .page-link {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 1rem;
-        padding: 1rem 1.5rem;
-        color: #c8b880;
-        text-decoration: none;
-        border-top: 1px solid rgba(200, 184, 128, 0.08);
-        transition: background 0.2s;
-      }
-      .page-link:first-child { border-top: none; }
-      .page-link:hover { background: rgba(200, 184, 128, 0.07); }
-
-      .title {
-        font-size: 1.05rem;
-        letter-spacing: 0.06em;
-      }
-
-      .updated {
-        font-size: 0.78rem;
-        opacity: 0.5;
-        white-space: nowrap;
-      }
-
-      .empty {
-        padding: 2.5rem 1.5rem;
-        text-align: center;
-        opacity: 0.5;
-        font-size: 0.9rem;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <nav class="topbar">
-        <a href="/">← 戻る</a>
-        <span>巻物の蔵</span>
-      </nav>
-
-      <h1>巻物の蔵</h1>
-
-      <section class="pages">
-        {pages.length === 0 ? (
-          <div class="empty">まだ何も記されていない</div>
-        ) : (
-          pages.map((p) => (
-            <a class="page-link" href={`/wiki/${p.slug}`}>
-              <span class="title">{p.title}</span>
-              <span class="updated">{fmtDate.format(p.updatedAt)}</span>
-            </a>
-          ))
-        )}
-      </section>
-    </div>
-  </body>
-</html>
+  .empty {
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+</style>
