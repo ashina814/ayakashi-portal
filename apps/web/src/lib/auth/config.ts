@@ -85,6 +85,33 @@ export function createAuthConfig(
        * サインイン時に Discord のメンバー情報を取得し DB に同期する
        */
       async signIn({ user, account }) {
+        const sql = neon(env.DATABASE_URL);
+        const trace = async (stage: string, info: Record<string, unknown> = {}) => {
+          try {
+            await sql`CREATE TABLE IF NOT EXISTS auth_error_log (
+              id SERIAL PRIMARY KEY,
+              name TEXT,
+              message TEXT,
+              cause TEXT,
+              stack TEXT,
+              extra TEXT,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )`;
+            await sql`INSERT INTO auth_error_log (name, message, cause, stack, extra)
+              VALUES (${"signIn-trace"}, ${stage}, ${""}, ${""}, ${JSON.stringify(info)})`;
+          } catch (e) {
+            console.error("[signIn-trace] write failed:", e);
+          }
+        };
+
+        await trace("entered", {
+          provider: account?.provider,
+          hasAccessToken: !!account?.access_token,
+          hasGuildId: !!env.GUILD_ID,
+          userId: user.id ?? null,
+          scope: account?.scope ?? null,
+        });
+
         if (
           account?.provider === "discord" &&
           account.access_token &&
@@ -96,15 +123,32 @@ export function createAuthConfig(
               account.access_token,
               env.GUILD_ID,
             );
+            await trace("fetched-member", {
+              found: !!discordMember,
+              roleCount: discordMember?.roles.length ?? 0,
+              joinedAt: discordMember?.joined_at ?? null,
+            });
             if (discordMember) {
-              await syncGuildMember(db, user.id, discordMember);
+              try {
+                await syncGuildMember(db, user.id, discordMember);
+                await trace("synced", { userId: user.id });
+              } catch (e: any) {
+                await trace("sync-failed", { error: e?.message ?? String(e), stack: e?.stack });
+              }
             } else {
-              console.warn(`[auth] User ${user.id} is not in guild ${env.GUILD_ID}`);
-              return false; // サーバーに未参加の場合はログインを拒否
+              await trace("not-in-guild", { userId: user.id });
+              return false;
             }
-          } catch (e) {
-            console.error("[auth] Failed to sync guild member on sign in:", e);
+          } catch (e: any) {
+            await trace("fetch-failed", { error: e?.message ?? String(e) });
           }
+        } else {
+          await trace("skipped-precondition", {
+            provider: account?.provider,
+            hasAccessToken: !!account?.access_token,
+            hasGuildId: !!env.GUILD_ID,
+            hasUserId: !!user.id,
+          });
         }
         return true;
       },
