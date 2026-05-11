@@ -70,6 +70,10 @@
   }
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   background-color: var(--bg-base);
@@ -78,6 +82,16 @@ body {
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* アンカージャンプ時、見出しがビューポート上端に張り付かないよう余白 */
+:target,
+[id] {
+  scroll-margin-top: 2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }
 
 /* フォーカスリング: 常時可視 */

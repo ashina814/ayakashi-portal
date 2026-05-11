@@ -4,13 +4,14 @@
  * Cloudflare Workers では DOM が無いため Tiptap 公式の generateHTML（DOMSerializer 依存）
  * は使えない。自前で再帰的に JSON ツリーを HTML 文字列にする。
  *
- * 対応ノード（Tiptap StarterKit 互換）:
- *   - doc, paragraph, heading(level 1-6), blockquote
- *   - bulletList, orderedList, listItem
- *   - codeBlock, horizontalRule, hardBreak
- *   - text + marks (bold, italic, strike, code, link, underline)
+ * 対応ノード:
+ *   - 標準: doc, paragraph, heading(1-6), blockquote, bulletList, orderedList,
+ *           listItem, codeBlock, horizontalRule, hardBreak
+ *   - カスタム: callout, toggle, statusChip
+ *   - マーク: bold, italic, strike, code, link, underline
  *
- * 拡張ノードは PR 2 で追加予定: callout, toggle, status-chip 等。
+ * heading は <h2 id="h-N"> 形式の anchor を自動付与し、TOC でジャンプ可能にする。
+ * renderWikiContent は本文 HTML と TOC エントリ一覧を返す。
  */
 
 export interface TiptapMark {
@@ -31,6 +32,17 @@ export interface TiptapDoc {
   content?: TiptapNode[];
 }
 
+export interface TocEntry {
+  id: string;
+  level: number; // 2 or 3
+  text: string;
+}
+
+export interface RenderedWiki {
+  html: string;
+  toc: TocEntry[];
+}
+
 const HTML_ENTITIES: Record<string, string> = {
   "&": "&amp;",
   "<": "&lt;",
@@ -43,15 +55,23 @@ function escapeHTML(s: string): string {
   return s.replace(/[&<>"']/g, (c) => HTML_ENTITIES[c]!);
 }
 
-/**
- * 属性値のエスケープ + 危険なスキームの遮断。
- * javascript: / data: / vbscript: で始まるリンクを無効化する。
- */
 function safeHref(href: unknown): string | null {
   if (typeof href !== "string") return null;
   const trimmed = href.trim();
   if (/^(javascript|data|vbscript):/i.test(trimmed)) return null;
   return escapeHTML(trimmed);
+}
+
+/** ノード内のすべての text を平文として取り出す（TOC ラベル用） */
+function plainText(node: TiptapNode): string {
+  if (typeof node.text === "string") return node.text;
+  return (node.content ?? []).map(plainText).join("");
+}
+
+/** レンダリングコンテキスト。heading の id 連番と TOC を蓄積する */
+interface RenderCtx {
+  headingCounter: number;
+  toc: TocEntry[];
 }
 
 function renderText(node: TiptapNode): string {
@@ -86,70 +106,132 @@ function renderText(node: TiptapNode): string {
   return out;
 }
 
-function renderChildren(nodes?: TiptapNode[]): string {
+function renderChildren(nodes: TiptapNode[] | undefined, ctx: RenderCtx): string {
   if (!nodes) return "";
-  return nodes.map(renderNode).join("");
+  return nodes.map((n) => renderNode(n, ctx)).join("");
 }
 
-function renderNode(node: TiptapNode): string {
+const CALLOUT_VARIANTS = new Set(["note", "info", "warning", "danger", "success"]);
+const CHIP_VARIANTS = new Set(["ok", "ng", "warn", "neutral"]);
+
+function renderNode(node: TiptapNode, ctx: RenderCtx): string {
   switch (node.type) {
-    case "paragraph": {
-      const inner = renderChildren(node.content);
-      return `<p>${inner}</p>`;
-    }
+    case "paragraph":
+      return `<p>${renderChildren(node.content, ctx)}</p>`;
+
     case "heading": {
       const lvl = Number(node.attrs?.level);
       const level = lvl >= 1 && lvl <= 6 ? lvl : 2;
-      return `<h${level}>${renderChildren(node.content)}</h${level}>`;
+      ctx.headingCounter += 1;
+      const id = `h-${ctx.headingCounter}`;
+      const inner = renderChildren(node.content, ctx);
+      if (level === 2 || level === 3) {
+        ctx.toc.push({
+          id,
+          level,
+          text: plainText(node),
+        });
+      }
+      return `<h${level} id="${id}">${inner}<a class="heading-anchor" href="#${id}" aria-label="このセクションへのリンク">¶</a></h${level}>`;
     }
+
     case "blockquote":
-      return `<blockquote>${renderChildren(node.content)}</blockquote>`;
+      return `<blockquote>${renderChildren(node.content, ctx)}</blockquote>`;
+
     case "bulletList":
-      return `<ul>${renderChildren(node.content)}</ul>`;
+      return `<ul>${renderChildren(node.content, ctx)}</ul>`;
+
     case "orderedList":
-      return `<ol>${renderChildren(node.content)}</ol>`;
+      return `<ol>${renderChildren(node.content, ctx)}</ol>`;
+
     case "listItem":
-      return `<li>${renderChildren(node.content)}</li>`;
+      return `<li>${renderChildren(node.content, ctx)}</li>`;
+
     case "codeBlock": {
       const lang =
         typeof node.attrs?.language === "string"
           ? escapeHTML(node.attrs.language)
           : "";
-      // codeBlock の child は通常 text ノードのみ。エスケープして出す。
       const raw =
         node.content
           ?.map((c) => (c.type === "text" ? c.text ?? "" : ""))
           .join("") ?? "";
       return `<pre><code${lang ? ` class="language-${lang}"` : ""}>${escapeHTML(raw)}</code></pre>`;
     }
+
     case "horizontalRule":
       return `<hr />`;
+
     case "hardBreak":
       return `<br />`;
+
     case "text":
       return renderText(node);
+
+    /* ── カスタムノード ───────────────────────── */
+
+    case "callout": {
+      const rawVariant = String(node.attrs?.variant ?? "note");
+      const variant = CALLOUT_VARIANTS.has(rawVariant) ? rawVariant : "note";
+      const title =
+        typeof node.attrs?.title === "string" && node.attrs.title.length > 0
+          ? escapeHTML(node.attrs.title)
+          : null;
+      return `<aside class="cl cl-${variant}">${
+        title ? `<div class="cl-title">${title}</div>` : ""
+      }<div class="cl-body">${renderChildren(node.content, ctx)}</div></aside>`;
+    }
+
+    case "toggle": {
+      const summary =
+        typeof node.attrs?.summary === "string"
+          ? escapeHTML(node.attrs.summary)
+          : "詳細を表示";
+      const open = node.attrs?.open === true ? " open" : "";
+      return `<details class="tg"${open}><summary>${summary}</summary><div class="tg-body">${renderChildren(node.content, ctx)}</div></details>`;
+    }
+
+    case "statusChip": {
+      const rawVariant = String(node.attrs?.variant ?? "neutral");
+      const variant = CHIP_VARIANTS.has(rawVariant) ? rawVariant : "neutral";
+      const label =
+        typeof node.attrs?.label === "string"
+          ? escapeHTML(node.attrs.label)
+          : variant === "ok"
+            ? "○"
+            : variant === "ng"
+              ? "×"
+              : variant === "warn"
+                ? "△"
+                : "—";
+      return `<span class="chip chip-${variant}">${label}</span>`;
+    }
+
     default:
-      // 未知ノードはサイレント無視（PR 2 で拡張ノードを追加）
       return "";
   }
 }
 
 /**
- * 保存された content 文字列を HTML に変換する。
+ * 保存された content 文字列を HTML + TOC に変換する。
  *
- * - Tiptap JSON 文字列であればパースしてレンダリング
- * - 旧プレーンテキストの場合は段落としてフォールバック表示
+ * - Tiptap JSON ならパースして再帰描画
+ * - 旧プレーンテキストの場合は単一段落でフォールバック
  */
-export function renderWikiContent(content: string): string {
-  if (!content || content.trim().length === 0) return "";
+export function renderWikiContent(content: string): RenderedWiki {
+  if (!content || content.trim().length === 0) {
+    return { html: "", toc: [] };
+  }
 
   let doc: unknown;
   try {
     doc = JSON.parse(content);
   } catch {
-    // 旧データ: 改行保持の単一段落でラップ
     const escaped = escapeHTML(content);
-    return `<p>${escaped.replace(/\n/g, "<br />")}</p>`;
+    return {
+      html: `<p>${escaped.replace(/\n/g, "<br />")}</p>`,
+      toc: [],
+    };
   }
 
   if (
@@ -157,8 +239,13 @@ export function renderWikiContent(content: string): string {
     typeof doc !== "object" ||
     (doc as TiptapDoc).type !== "doc"
   ) {
-    return `<p>${escapeHTML(JSON.stringify(doc))}</p>`;
+    return {
+      html: `<p>${escapeHTML(JSON.stringify(doc))}</p>`,
+      toc: [],
+    };
   }
 
-  return renderChildren((doc as TiptapDoc).content);
+  const ctx: RenderCtx = { headingCounter: 0, toc: [] };
+  const html = renderChildren((doc as TiptapDoc).content, ctx);
+  return { html, toc: ctx.toc };
 }

@@ -8,7 +8,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
-import { renderWikiContent } from "../wiki/render";
+import { renderWikiContent, type TocEntry } from "../wiki/render";
 
 export interface WikiPageListItem {
   id: string;
@@ -22,6 +22,8 @@ export interface WikiPageDetail extends WikiPageListItem {
   content: string;
   /** サーバーサイドでレンダリング済みの HTML（描画用） */
   contentHtml: string;
+  /** H2/H3 から抽出した目次。サイドバー TOC で使用 */
+  toc: TocEntry[];
   revisionCreatedAt: Date | null;
 }
 
@@ -104,13 +106,15 @@ export async function getPageBySlug(
     }
   }
 
+  const rendered = renderWikiContent(content);
   return {
     id: page.id,
     slug: page.slug,
     title: page.title,
     updatedAt: page.updatedAt,
     content,
-    contentHtml: renderWikiContent(content),
+    contentHtml: rendered.html,
+    toc: rendered.toc,
     revisionCreatedAt,
   };
 }
