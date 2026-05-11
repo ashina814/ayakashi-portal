@@ -1,0 +1,209 @@
+---
+/**
+ * /me — マイページ（M1b 読み取り専用版）
+ *
+ * 表示: アバター, 表示名, ニックネーム, 入鯖日, ロール一覧
+ * M2 で自己紹介編集・設定を追加予定。
+ */
+
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../lib/auth/helpers";
+import { getMemberWithRoles } from "../lib/repos/membership";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const user = Astro.locals.session.user;
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+
+const userId = (user as { id?: string } | undefined)?.id;
+const member = userId ? await getMemberWithRoles(db, userId) : null;
+
+const joinedAtLabel = member?.joinedAt
+  ? new Intl.DateTimeFormat("ja-JP", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }).format(member.joinedAt)
+  : "—";
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>マイページ — 妖ポータル</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap");
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        min-height: 100dvh;
+        background: #0a0509;
+        color: #c8b880;
+        font-family: "Yuji Syuku", serif;
+        padding: 3rem 1.5rem;
+      }
+
+      .container {
+        max-width: 720px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.9rem;
+        opacity: 0.6;
+      }
+
+      .topbar a {
+        color: #c8b880;
+        text-decoration: none;
+      }
+      .topbar a:hover { opacity: 1; }
+
+      h1 {
+        font-size: clamp(1.6rem, 4vw, 2.4rem);
+        letter-spacing: 0.18em;
+        text-align: center;
+      }
+
+      .card {
+        padding: 2rem;
+        border: 1px solid rgba(200, 184, 128, 0.2);
+        border-radius: 10px;
+        background: rgba(200, 184, 128, 0.03);
+      }
+
+      .profile {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .avatar {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        border: 2px solid rgba(200, 184, 128, 0.3);
+      }
+
+      .name {
+        font-size: 1.25rem;
+        line-height: 1.5;
+      }
+
+      .nick {
+        font-size: 0.9rem;
+        opacity: 0.6;
+      }
+
+      dl {
+        display: grid;
+        grid-template-columns: 8rem 1fr;
+        gap: 0.75rem 1.25rem;
+        font-size: 0.95rem;
+      }
+
+      dt { opacity: 0.55; }
+
+      .roles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .role-chip {
+        padding: 0.2rem 0.7rem;
+        font-size: 0.82rem;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        line-height: 1.6;
+      }
+
+      .empty {
+        opacity: 0.45;
+        font-size: 0.9rem;
+      }
+
+      .logout {
+        text-align: center;
+        font-size: 0.85rem;
+        opacity: 0.55;
+      }
+
+      .logout a {
+        color: #c8b880;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(200, 184, 128, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <nav class="topbar">
+        <a href="/">← 戻る</a>
+        <span>マイページ</span>
+      </nav>
+
+      <h1>己が記録</h1>
+
+      <section class="card">
+        <div class="profile">
+          {user?.image && (
+            <img
+              class="avatar"
+              src={user.image}
+              alt={user.name ?? "ユーザー"}
+              width="84"
+              height="84"
+            />
+          )}
+          <div>
+            <div class="name">{user?.name ?? "名無しの妖"}</div>
+            {member?.nickname && (
+              <div class="nick">サーバー内呼び名: {member.nickname}</div>
+            )}
+          </div>
+        </div>
+
+        <dl>
+          <dt>入鯖日</dt>
+          <dd>{joinedAtLabel}</dd>
+
+          <dt>ロール</dt>
+          <dd>
+            {member && member.roles.length > 0 ? (
+              <div class="roles">
+                {member.roles.map((r) => (
+                  <span
+                    class="role-chip"
+                    style={r.color ? `color: ${r.color};` : ""}
+                  >
+                    {r.name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span class="empty">（取得中、または所属ロールなし）</span>
+            )}
+          </dd>
+        </dl>
+      </section>
+
+      <div class="logout">
+        <a href="/api/auth/signout">退出する</a>
+      </div>
+    </div>
+  </body>
+</html>
