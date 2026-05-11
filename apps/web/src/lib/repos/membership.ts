@@ -7,7 +7,7 @@
 
 import { eq, inArray, asc } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { members, roles, memberRoles } from "@ayakashi/db";
+import { members, roles, memberRoles, roleAliases } from "@ayakashi/db";
 
 export interface MemberWithRoles {
   nickname: string | null;
@@ -54,6 +54,25 @@ export async function getMemberWithRoles(
 
 /** members.bio の最大文字数（クライアント / サーバー両方で参照） */
 export const BIO_MAX_LENGTH = 1000;
+
+/**
+ * ユーザーが保持するロールに紐づく alias 集合を返す。
+ * members → member_roles → role_aliases の join。
+ * members 行が無い（同期前）場合は空配列。
+ */
+export async function getMemberRoleAliases(
+  db: NeonHttpDatabase<any>,
+  userId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ alias: roleAliases.alias })
+    .from(members)
+    .innerJoin(memberRoles, eq(memberRoles.memberId, members.id))
+    .innerJoin(roleAliases, eq(roleAliases.roleId, memberRoles.roleId))
+    .where(eq(members.userId, userId));
+
+  return Array.from(new Set(rows.map((r) => r.alias)));
+}
 
 /**
  * 自己紹介を更新する。同期処理を介さず本人のみが書き込む想定。

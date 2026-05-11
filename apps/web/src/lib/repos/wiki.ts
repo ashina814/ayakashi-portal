@@ -1,13 +1,13 @@
 /**
  * Wiki Repository
  *
- * wiki_pages / wiki_revisions テーブルの読み取りをカプセル化。
+ * wiki_pages / wiki_revisions / wiki_visibility テーブルの読み取りをカプセル化。
  * 編集系（書き込み・楽観ロック・サニタイズ）は M3c で追加予定。
  */
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, notExists, or, sql } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { wikiPages, wikiRevisions } from "@ayakashi/db";
+import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
 
 export interface WikiPageListItem {
   id: string;
@@ -22,11 +22,35 @@ export interface WikiPageDetail extends WikiPageListItem {
 }
 
 /**
- * 全ページの一覧（更新日時降順）。
- * 公開範囲フィルタは M3b で追加する。
+ * 閲覧可否の SQL 条件: visibility 行が無い（public）か、
+ * いずれかの required_role_alias がユーザーの alias 集合に含まれる。
+ */
+function buildVisibilityFilter(aliases: string[]) {
+  const noVisibility = notExists(
+    sql`select 1 from ${wikiVisibility}
+        where ${wikiVisibility.pageId} = ${wikiPages.id}`,
+  );
+
+  if (aliases.length === 0) {
+    // alias を1つも持たないユーザーは public ページのみ
+    return noVisibility;
+  }
+
+  const hasMatchingAlias = exists(
+    sql`select 1 from ${wikiVisibility}
+        where ${wikiVisibility.pageId} = ${wikiPages.id}
+          and ${inArray(wikiVisibility.requiredRoleAlias, aliases)}`,
+  );
+
+  return or(noVisibility, hasMatchingAlias);
+}
+
+/**
+ * 閲覧可能なページの一覧（更新日時降順）。
  */
 export async function listPages(
   db: NeonHttpDatabase<any>,
+  aliases: string[],
 ): Promise<WikiPageListItem[]> {
   return await db
     .select({
@@ -36,22 +60,22 @@ export async function listPages(
       updatedAt: wikiPages.updatedAt,
     })
     .from(wikiPages)
+    .where(buildVisibilityFilter(aliases))
     .orderBy(desc(wikiPages.updatedAt));
 }
 
 /**
- * slug からページを取得し、現在の revision の本文も付ける。
- * page は存在するが current_revision_id が null（書きかけ）の場合は
- * content を空文字で返す。
+ * slug からページを取得。閲覧権限が無ければ null を返す（404 と同等）。
  */
 export async function getPageBySlug(
   db: NeonHttpDatabase<any>,
   slug: string,
+  aliases: string[],
 ): Promise<WikiPageDetail | null> {
   const [page] = await db
     .select()
     .from(wikiPages)
-    .where(eq(wikiPages.slug, slug))
+    .where(and(eq(wikiPages.slug, slug), buildVisibilityFilter(aliases)))
     .limit(1);
 
   if (!page) return null;
