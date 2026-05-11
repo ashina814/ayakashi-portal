@@ -89,9 +89,20 @@ const user = Astro.locals.session.user;
         display: flex;
         gap: 1.5rem;
         margin-top: 1rem;
-        opacity: 0.5;
         font-size: 0.9rem;
       }
+
+      .nav-placeholder a {
+        color: #c8b880;
+        text-decoration: none;
+        opacity: 0.85;
+        border-bottom: 1px solid rgba(200, 184, 128, 0.3);
+        transition: opacity 0.2s;
+      }
+
+      .nav-placeholder a:hover { opacity: 1; }
+
+      .nav-placeholder span { opacity: 0.4; }
     </style>
   </head>
   <body>
@@ -110,7 +121,7 @@ const user = Astro.locals.session.user;
       <span class="status">認証済み ✓</span>
     </div>
     <div class="nav-placeholder">
-      <span>マイページ（M2）</span>
+      <a href="/me">マイページ</a>
       <span>Wiki（M3）</span>
     </div>
     <a class="logout-link" href="/api/auth/signout">

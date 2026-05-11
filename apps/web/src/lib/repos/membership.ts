@@ -5,9 +5,52 @@
  * MVP段階では Discord OAuth ログイン時の同期処理を担う。
  */
 
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, asc } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { members, roles, memberRoles } from "@ayakashi/db";
+
+export interface MemberWithRoles {
+  nickname: string | null;
+  joinedAt: Date | null;
+  bio: string | null;
+  roles: { id: string; name: string; color: string | null; sortOrder: number }[];
+}
+
+/**
+ * users.id から本人のメンバー情報（ニックネーム・入鯖日・ロール一覧）を取得する。
+ * Bot 同期前でも OAuth ログイン時の syncGuildMember で書かれている前提。
+ */
+export async function getMemberWithRoles(
+  db: NeonHttpDatabase<any>,
+  userId: string,
+): Promise<MemberWithRoles | null> {
+  const [member] = await db
+    .select()
+    .from(members)
+    .where(eq(members.userId, userId))
+    .limit(1);
+
+  if (!member) return null;
+
+  const rows = await db
+    .select({
+      id: roles.id,
+      name: roles.name,
+      color: roles.color,
+      sortOrder: roles.sortOrder,
+    })
+    .from(memberRoles)
+    .innerJoin(roles, eq(memberRoles.roleId, roles.id))
+    .where(eq(memberRoles.memberId, member.id))
+    .orderBy(asc(roles.sortOrder), asc(roles.name));
+
+  return {
+    nickname: member.nickname,
+    joinedAt: member.joinedAt,
+    bio: member.bio,
+    roles: rows,
+  };
+}
 
 /**
  * ログイン時に Discord のメンバー情報を DB に同期する
