@@ -58,6 +58,7 @@ export function createAuthConfig(
         authorization: {
           params: {
             scope: DISCORD_SCOPES,
+            prompt: "consent",
           },
         },
       }),
