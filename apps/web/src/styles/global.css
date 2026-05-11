@@ -3,163 +3,156 @@
  *
  * デザインシステム v1 §13 に準拠。
  * カラーは ink / mist / gold / vermilion / crimson / washi / moss。
- * Tailwind 経由でも同じトークンが使える（tailwind.config.ts）。
+ * Tailwind の @tailwind ディレクティブは @astrojs/tailwind が自動注入する。
+ * このファイルは @layer を使わず、CSS 変数 + 共通 component class を提供。
  * ───────────────────────────────────────────────────────── */
 
-/* Tailwind の @tailwind ディレクティブは @astrojs/tailwind が自動注入する。
-   ここでは @layer 経由でデザインシステムのトークンと共通 component を上書きする。 */
+:root {
+  /* ink */
+  --color-ink-950: #0a0509;
+  --color-ink-900: #14090f;
+  --color-ink-800: #1f1219;
+  --color-ink-700: #2a1c25;
+  --color-ink-600: #3a2733;
 
-@layer base {
+  /* mist */
+  --color-mist-100: #e7eef3;
+  --color-mist-300: #b8cad8;
+  --color-mist-500: #6f8fa6;
+  --color-mist-700: #3d5566;
+  --color-mist-glow: #b8e0ff;
+
+  /* vermilion / crimson / gold / washi / moss */
+  --color-vermilion-500: #b04438;
+  --color-crimson-500: #c1283a;
+  --color-gold-100: #f5e7c4;
+  --color-gold-300: #e0c684;
+  --color-gold-500: #b89540;
+  --color-gold-700: #8a6d24;
+  --color-washi-50: #f5efe1;
+  --color-washi-700: #5c5340;
+  --color-washi-900: #2e2818;
+  --color-moss-500: #6b8a4e;
+
+  /* semantic */
+  --bg-base: var(--color-ink-950);
+  --bg-surface: var(--color-ink-800);
+  --bg-elevated: var(--color-ink-700);
+  --text-primary: var(--color-gold-100);
+  --text-secondary: var(--color-mist-300);
+  --text-muted: var(--color-mist-500);
+  --border-base: var(--color-ink-600);
+  --border-strong: var(--color-gold-700);
+  --accent: var(--color-crimson-500);
+
+  /* radius */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 10px;
+
+  /* duration / easing */
+  --dur-fast: 200ms;
+  --dur-base: 400ms;
+  --dur-slow: 800ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* elevation */
+  --elev-1: inset 0 0 0 1px rgba(184, 149, 64, 0.18);
+  --elev-2: 0 0 24px 0 rgba(184, 224, 255, 0.1),
+    inset 0 0 0 1px rgba(184, 149, 64, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
   :root {
-    /* ink */
-    --color-ink-950: #0a0509;
-    --color-ink-900: #14090f;
-    --color-ink-800: #1f1219;
-    --color-ink-700: #2a1c25;
-    --color-ink-600: #3a2733;
-
-    /* mist */
-    --color-mist-100: #e7eef3;
-    --color-mist-300: #b8cad8;
-    --color-mist-500: #6f8fa6;
-    --color-mist-700: #3d5566;
-    --color-mist-glow: #b8e0ff;
-
-    /* vermilion / crimson / gold / washi / moss */
-    --color-vermilion-500: #b04438;
-    --color-crimson-500: #c1283a;
-    --color-gold-100: #f5e7c4;
-    --color-gold-300: #e0c684;
-    --color-gold-500: #b89540;
-    --color-gold-700: #8a6d24;
-    --color-washi-50: #f5efe1;
-    --color-washi-700: #5c5340;
-    --color-washi-900: #2e2818;
-    --color-moss-500: #6b8a4e;
-
-    /* semantic */
-    --bg-base: var(--color-ink-950);
-    --bg-surface: var(--color-ink-800);
-    --bg-elevated: var(--color-ink-700);
-    --text-primary: var(--color-gold-100);
-    --text-secondary: var(--color-mist-300);
-    --text-muted: var(--color-mist-500);
-    --border-base: var(--color-ink-600);
-    --border-strong: var(--color-gold-700);
-    --accent: var(--color-crimson-500);
-
-    /* radius */
-    --radius-sm: 2px;
-    --radius-md: 4px;
-    --radius-lg: 10px;
-
-    /* duration / easing */
-    --dur-fast: 200ms;
-    --dur-base: 400ms;
-    --dur-slow: 800ms;
-    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-
-    /* elevation */
-    --elev-1: inset 0 0 0 1px rgba(184, 149, 64, 0.18);
-    --elev-2: 0 0 24px 0 rgba(184, 224, 255, 0.1),
-      inset 0 0 0 1px rgba(184, 149, 64, 0.3);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    :root {
-      --dur-fast: 1ms;
-      --dur-base: 1ms;
-      --dur-slow: 1ms;
-    }
-  }
-
-  html,
-  body {
-    background-color: var(--bg-base);
-    color: var(--text-primary);
-    font-family: "Yuji Syuku", "Shippori Mincho B1", serif;
-    line-height: 1.7;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-
-  /* フォーカスリング: 常時可視 */
-  :focus-visible {
-    outline: 2px solid var(--color-gold-500);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
-  }
-
-  a {
-    color: var(--color-gold-300);
-    text-decoration: none;
-    transition: color var(--dur-fast) var(--ease-out);
-  }
-  a:hover {
-    color: var(--color-gold-100);
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
   }
 }
 
-@layer components {
-  /* 共通カード */
-  .ay-card {
-    background: var(--bg-elevated);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--elev-1);
-    padding: 1.5rem 1.75rem;
-  }
+html,
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: "Yuji Syuku", "Shippori Mincho B1", serif;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
 
-  /* 御札型ボタン (primary) */
-  .ay-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.5rem 1.25rem;
-    border-radius: 999px;
-    border: 1px solid var(--color-gold-700);
-    background: transparent;
-    color: var(--color-gold-100);
-    font-family: inherit;
-    font-size: 0.9rem;
-    line-height: 1.4;
-    cursor: pointer;
-    transition: background var(--dur-fast) var(--ease-out),
-      border-color var(--dur-fast) var(--ease-out);
-  }
-  .ay-btn:hover {
-    background: rgba(184, 149, 64, 0.1);
-    border-color: var(--color-gold-500);
-  }
-  .ay-btn[disabled] {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+/* フォーカスリング: 常時可視 */
+:focus-visible {
+  outline: 2px solid var(--color-gold-500);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
 
-  .ay-btn-ghost {
-    border-color: transparent;
-    color: var(--color-gold-300);
-  }
-  .ay-btn-ghost:hover {
-    border-color: var(--color-gold-700);
-    background: transparent;
-  }
+a {
+  color: var(--color-gold-300);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+a:hover {
+  color: var(--color-gold-100);
+}
 
-  /* 入力フィールド */
-  .ay-textarea {
-    background: rgba(10, 5, 9, 0.5);
-    border: 1px solid var(--border-base);
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    font-family: inherit;
-    font-size: 0.95rem;
-    line-height: 1.7;
-    padding: 0.75rem 1rem;
-    resize: vertical;
-    min-height: 7rem;
-    width: 100%;
-  }
-  .ay-textarea:focus {
-    border-color: var(--color-gold-500);
-    outline: none;
-  }
+/* ─── 共通コンポーネント ─── */
+
+.ay-card {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-1);
+  padding: 1.5rem 1.75rem;
+}
+
+.ay-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-gold-700);
+  background: transparent;
+  color: var(--color-gold-100);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.ay-btn:hover {
+  background: rgba(184, 149, 64, 0.1);
+  border-color: var(--color-gold-500);
+}
+.ay-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ay-btn-ghost {
+  border-color: transparent;
+  color: var(--color-gold-300);
+}
+.ay-btn-ghost:hover {
+  border-color: var(--color-gold-700);
+  background: transparent;
+}
+
+.ay-textarea {
+  background: rgba(10, 5, 9, 0.5);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  padding: 0.75rem 1rem;
+  resize: vertical;
+  min-height: 7rem;
+  width: 100%;
+}
+.ay-textarea:focus {
+  border-color: var(--color-gold-500);
+  outline: none;
 }
