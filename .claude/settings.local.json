@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:ayakashi-portal.pages.dev)",
+      "Bash(gh pr *)",
+      "PowerShell(git add apps/web/src/lib/auth/config.ts apps/web/src/pages/api/debug.ts)",
+      "Bash(env)",
+      "Read(//c/Users/kotes/AppData/Local/**)",
+      "Bash(find /c -maxdepth 5 -iname \"gh.exe\")",
+      "Bash(curl -s \"https://api.github.com/repos/ashina814/ayakashi-portal/pulls?head=ashina814:claude/elated-spence-b1b6a9&state=all\")",
+      "Bash(git pull *)"
+    ]
+  }
+}
