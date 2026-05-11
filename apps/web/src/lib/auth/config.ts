@@ -11,7 +11,6 @@
 
 import Discord from "@auth/core/providers/discord";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
-import { neon } from "@neondatabase/serverless";
 import { createDb } from "@ayakashi/db/client";
 import {
   users,
@@ -31,15 +30,13 @@ const DISCORD_SCOPES = "identify email guilds.members.read";
  * Cloudflare Workers では request ごとに env が渡されるため、
  * ファクトリ関数にする。
  */
-export function createAuthConfig(
-  env: {
-    DISCORD_CLIENT_ID: string;
-    DISCORD_CLIENT_SECRET: string;
-    AUTH_SECRET: string;
-    DATABASE_URL: string;
-  },
-  waitUntil?: (p: Promise<unknown>) => void,
-): AuthConfig {
+export function createAuthConfig(env: {
+  DISCORD_CLIENT_ID: string;
+  DISCORD_CLIENT_SECRET: string;
+  AUTH_SECRET: string;
+  DATABASE_URL: string;
+  GUILD_ID: string;
+}): AuthConfig {
   const db = createDb(env.DATABASE_URL);
 
   return {
@@ -80,36 +77,10 @@ export function createAuthConfig(
 
     callbacks: {
       /**
-       * サインイン時に Discord のメンバー情報を取得し DB に同期する
+       * サインイン時に Discord のメンバー情報を取得し DB に同期する。
+       * サーバー未参加なら拒否、同期失敗はログだけ吐いて通す。
        */
       async signIn({ user, account }) {
-        const sql = neon(env.DATABASE_URL);
-        const trace = async (stage: string, info: Record<string, unknown> = {}) => {
-          try {
-            await sql`CREATE TABLE IF NOT EXISTS auth_error_log (
-              id SERIAL PRIMARY KEY,
-              name TEXT,
-              message TEXT,
-              cause TEXT,
-              stack TEXT,
-              extra TEXT,
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )`;
-            await sql`INSERT INTO auth_error_log (name, message, cause, stack, extra)
-              VALUES (${"signIn-trace"}, ${stage}, ${""}, ${""}, ${JSON.stringify(info)})`;
-          } catch (e) {
-            console.error("[signIn-trace] write failed:", e);
-          }
-        };
-
-        await trace("entered", {
-          provider: account?.provider,
-          hasAccessToken: !!account?.access_token,
-          hasGuildId: !!env.GUILD_ID,
-          userId: user.id ?? null,
-          scope: account?.scope ?? null,
-        });
-
         if (
           account?.provider === "discord" &&
           account.access_token &&
@@ -121,32 +92,15 @@ export function createAuthConfig(
               account.access_token,
               env.GUILD_ID,
             );
-            await trace("fetched-member", {
-              found: !!discordMember,
-              roleCount: discordMember?.roles.length ?? 0,
-              joinedAt: discordMember?.joined_at ?? null,
-            });
             if (discordMember) {
-              try {
-                await syncGuildMember(db, user.id, discordMember);
-                await trace("synced", { userId: user.id });
-              } catch (e: any) {
-                await trace("sync-failed", { error: e?.message ?? String(e), stack: e?.stack });
-              }
+              await syncGuildMember(db, user.id, discordMember);
             } else {
-              await trace("not-in-guild", { userId: user.id });
+              console.warn(`[auth] User ${user.id} is not in guild ${env.GUILD_ID}`);
               return false;
             }
-          } catch (e: any) {
-            await trace("fetch-failed", { error: e?.message ?? String(e) });
+          } catch (e) {
+            console.error("[auth] Failed to sync guild member on sign in:", e);
           }
-        } else {
-          await trace("skipped-precondition", {
-            provider: account?.provider,
-            hasAccessToken: !!account?.access_token,
-            hasGuildId: !!env.GUILD_ID,
-            hasUserId: !!user.id,
-          });
         }
         return true;
       },
@@ -159,92 +113,6 @@ export function createAuthConfig(
           session.user.id = user.id;
         }
         return session;
-      },
-    },
-
-    // エラー調査用に debug を有効化し、ロガーを設定
-    debug: true,
-    logger: {
-      error(code, ...message) {
-        console.error("[AuthError]", code, ...message);
-
-        // 再帰的に Error の cause チェーンを文字列化する。
-        // AdapterError の cause は Error or 任意のオブジェクトのことが多い。
-        const serializeCause = (c: unknown, depth = 0): string => {
-          if (c == null) return "";
-          if (depth > 5) return "<max depth>";
-          if (c instanceof Error) {
-            const inner = (c as any).cause;
-            const innerStr = inner != null ? ` <- ${serializeCause(inner, depth + 1)}` : "";
-            return `${c.name}: ${c.message}${innerStr}`;
-          }
-          if (typeof c === "object") {
-            try {
-              return JSON.stringify(c, Object.getOwnPropertyNames(c));
-            } catch {
-              return "<unserializable>";
-            }
-          }
-          return String(c);
-        };
-
-        let name = "Error";
-        let msg = "";
-        let cause = "";
-        let stack = "";
-        if (code instanceof Error) {
-          name = code.name;
-          msg = code.message;
-          cause = serializeCause((code as any).cause);
-          stack = code.stack ?? "";
-        } else {
-          msg = String(code);
-        }
-
-        // Cloudflare Pages の isolate 間で globalThis は共有されないため
-        // /api/debug から拾えるよう Neon に永続化する。
-        // waitUntil で Cloudflare に書き込み完了まで isolate を生かしてもらう。
-        const sql = neon(env.DATABASE_URL);
-        const writeJob = (async () => {
-          try {
-            await sql`CREATE TABLE IF NOT EXISTS auth_error_log (
-              id SERIAL PRIMARY KEY,
-              name TEXT,
-              message TEXT,
-              cause TEXT,
-              stack TEXT,
-              extra TEXT,
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )`;
-            const extraStr = JSON.stringify(
-              message,
-              (_k, v) => {
-                if (v instanceof Error) {
-                  return {
-                    name: v.name,
-                    message: v.message,
-                    cause: serializeCause((v as any).cause),
-                    stack: v.stack,
-                  };
-                }
-                return v;
-              },
-            );
-            await sql`INSERT INTO auth_error_log (name, message, cause, stack, extra)
-              VALUES (${name}, ${msg}, ${cause}, ${stack}, ${extraStr})`;
-          } catch (e) {
-            console.error("[AuthError] failed to persist error to neon:", e);
-          }
-        })();
-        if (waitUntil) {
-          waitUntil(writeJob);
-        }
-      },
-      warn(code, ...message) {
-        console.warn("[AuthWarn]", code, ...message);
-      },
-      debug(code, ...message) {
-        console.log("[AuthDebug]", code, ...message);
       },
     },
   };
