@@ -2,9 +2,10 @@
 /**
  * /wiki/[slug] — ページ詳細
  *
- * 本文は Tiptap JSON（または旧プレーンテキスト）をサーバーサイドで HTML に
- * レンダリングして表示する。XSS 対策はレンダラ側（apps/web/src/lib/wiki/render.ts）。
- * 章ナビ・採番・カスタムノードは PR 2 で追加。
+ * 本文は Tiptap JSON をサーバーサイドで HTML にレンダリングして表示。
+ * H2/H3 から自動生成された TOC を右サイドに sticky 表示する。
+ * H2 は CSS counter で「01」「02」と自動採番。
+ * callout / toggle / status-chip のカスタムノードもレンダラ側で対応済み。
  */
 
 import AppShell from "../../layouts/AppShell.astro";
@@ -41,11 +42,7 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
 });
 ---
 
-<AppShell
-  title={`${page.title} — 巻物の蔵`}
-  active="wiki"
-  contentVariant="prose"
->
+<AppShell title={`${page.title} — 巻物の蔵`} active="wiki">
   <nav class="crumbs">
     <a href="/wiki">← 巻物の蔵</a>
   </nav>
@@ -57,11 +54,26 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     </span>
   </header>
 
-  {page.contentHtml.length > 0 ? (
-    <article class="prose" set:html={page.contentHtml} />
-  ) : (
-    <article class="empty">（まだ本文が書かれていない）</article>
-  )}
+  <div class="layout">
+    {page.contentHtml.length > 0 ? (
+      <article class="prose" set:html={page.contentHtml} />
+    ) : (
+      <article class="empty">（まだ本文が書かれていない）</article>
+    )}
+
+    {page.toc.length > 0 && (
+      <aside class="toc" aria-label="目次">
+        <div class="toc-label">目次</div>
+        <ol class="toc-list">
+          {page.toc.map((t) => (
+            <li class:list={["toc-item", `toc-l${t.level}`]}>
+              <a href={`#${t.id}`}>{t.text}</a>
+            </li>
+          ))}
+        </ol>
+      </aside>
+    )}
+  </div>
 </AppShell>
 
 <style>
@@ -80,68 +92,144 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     padding-bottom: 1.25rem;
     margin-bottom: 2rem;
   }
-
   h1 {
     font-size: clamp(1.7rem, 4vw, 2.4rem);
     letter-spacing: 0.12em;
   }
-
   .meta {
     font-size: 0.78rem;
     color: var(--text-muted);
   }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 14rem;
+    gap: 3rem;
+    align-items: start;
+  }
+
+  @media (max-width: 960px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.5rem;
+    }
+    .toc { order: -1; }
+  }
+
+  /* ── TOC ─────────────────────────── */
+  .toc {
+    position: sticky;
+    top: 2rem;
+    max-height: calc(100dvh - 4rem);
+    overflow-y: auto;
+    padding: 1rem 1.25rem;
+    border-left: 1px solid var(--border-base);
+    font-size: 0.85rem;
+    line-height: 1.7;
+  }
+  @media (max-width: 960px) {
+    .toc {
+      position: static;
+      max-height: none;
+      border-left: none;
+      border: 1px solid var(--border-base);
+      border-radius: 8px;
+      background: rgba(184, 149, 64, 0.03);
+    }
+  }
+
+  .toc-label {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+  }
+
+  .toc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .toc-item a {
+    display: block;
+    padding: 0.2rem 0;
+    color: var(--text-secondary);
+    border: none;
+  }
+  .toc-item a:hover { color: var(--color-gold-100); }
+  .toc-l3 a { padding-left: 0.9rem; font-size: 0.82rem; }
 
   .empty {
     color: var(--text-muted);
     font-size: 0.9rem;
   }
 
-  /* ── レンダリング後の本文スタイル ── */
+  /* ── 本文 prose ─────────────────────── */
   .prose {
     line-height: 1.9;
     font-size: 0.98rem;
     color: var(--text-primary);
+    counter-reset: section;
   }
 
   .prose :global(h2) {
-    font-size: 1.5rem;
+    font-size: 1.45rem;
     letter-spacing: 0.08em;
-    margin-top: 2.5rem;
+    margin-top: 3rem;
     margin-bottom: 1rem;
-    padding-bottom: 0.4rem;
+    padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(184, 149, 64, 0.2);
+    position: relative;
+  }
+  .prose :global(h2::before) {
+    counter-increment: section;
+    content: counter(section, decimal-leading-zero);
+    display: block;
+    color: var(--color-gold-500);
+    font-size: 0.75rem;
+    letter-spacing: 0.25em;
+    margin-bottom: 0.25rem;
   }
 
   .prose :global(h3) {
-    font-size: 1.2rem;
+    font-size: 1.15rem;
     letter-spacing: 0.06em;
     margin-top: 2rem;
-    margin-bottom: 0.6rem;
+    margin-bottom: 0.5rem;
     color: var(--color-gold-300);
   }
 
   .prose :global(h4) {
-    font-size: 1.05rem;
+    font-size: 1rem;
     margin-top: 1.5rem;
     margin-bottom: 0.4rem;
     color: var(--text-secondary);
   }
 
-  .prose :global(p) {
-    margin-block: 0.85rem;
+  .prose :global(.heading-anchor) {
+    color: var(--color-gold-700);
+    opacity: 0;
+    margin-left: 0.5rem;
+    font-weight: normal;
+    border: none;
+    transition: opacity var(--dur-fast) var(--ease-out);
   }
+  .prose :global(h2:hover .heading-anchor),
+  .prose :global(h3:hover .heading-anchor),
+  .prose :global(h4:hover .heading-anchor) {
+    opacity: 1;
+  }
+  .prose :global(.heading-anchor:hover) { color: var(--color-gold-300); }
 
+  .prose :global(p) { margin-block: 0.85rem; }
   .prose :global(ul),
   .prose :global(ol) {
     margin-block: 0.85rem;
     padding-left: 1.5rem;
   }
-  .prose :global(li) {
-    margin-block: 0.2rem;
-  }
-  .prose :global(li::marker) {
-    color: var(--color-gold-500);
-  }
+  .prose :global(li) { margin-block: 0.2rem; }
+  .prose :global(li::marker) { color: var(--color-gold-500); }
 
   .prose :global(blockquote) {
     margin: 1.25rem 0;
@@ -161,7 +249,6 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     font-size: 0.88em;
     color: var(--color-mist-100);
   }
-
   .prose :global(pre) {
     background: rgba(10, 5, 9, 0.5);
     border: 1px solid var(--border-base);
@@ -199,4 +286,101 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     color: var(--color-gold-100);
     border-bottom-color: var(--color-gold-100);
   }
+
+  /* ── カスタムノード: callout ─────────────────── */
+  .prose :global(.cl) {
+    margin: 1.25rem 0;
+    padding: 0.85rem 1.1rem;
+    border-radius: 8px;
+    border-left: 3px solid var(--cl-accent);
+    background: var(--cl-bg);
+    color: var(--text-primary);
+  }
+  .prose :global(.cl > .cl-title) {
+    font-size: 0.78rem;
+    letter-spacing: 0.15em;
+    color: var(--cl-accent);
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+  }
+  .prose :global(.cl > .cl-body > *:first-child) { margin-top: 0; }
+  .prose :global(.cl > .cl-body > *:last-child) { margin-bottom: 0; }
+
+  .prose :global(.cl-note) {
+    --cl-accent: var(--color-mist-300);
+    --cl-bg: rgba(184, 202, 216, 0.05);
+  }
+  .prose :global(.cl-info) {
+    --cl-accent: var(--color-mist-glow);
+    --cl-bg: rgba(184, 224, 255, 0.06);
+  }
+  .prose :global(.cl-warning) {
+    --cl-accent: var(--color-gold-500);
+    --cl-bg: rgba(184, 149, 64, 0.07);
+  }
+  .prose :global(.cl-danger) {
+    --cl-accent: var(--color-crimson-500);
+    --cl-bg: rgba(193, 40, 58, 0.08);
+  }
+  .prose :global(.cl-success) {
+    --cl-accent: var(--color-moss-500);
+    --cl-bg: rgba(107, 138, 78, 0.08);
+  }
+
+  /* ── カスタムノード: toggle (details/summary) ── */
+  .prose :global(.tg) {
+    margin: 1.25rem 0;
+    border: 1px solid var(--border-base);
+    border-radius: 8px;
+    background: rgba(10, 5, 9, 0.3);
+  }
+  .prose :global(.tg > summary) {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.7rem 1.1rem;
+    font-size: 0.95rem;
+    color: var(--color-gold-300);
+    user-select: none;
+    position: relative;
+    padding-left: 2.2rem;
+  }
+  .prose :global(.tg > summary::-webkit-details-marker) { display: none; }
+  .prose :global(.tg > summary::before) {
+    content: "▶";
+    position: absolute;
+    left: 1.1rem;
+    top: 50%;
+    transform: translateY(-50%) rotate(0deg);
+    font-size: 0.7rem;
+    color: var(--color-gold-500);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .prose :global(.tg[open] > summary::before) {
+    transform: translateY(-50%) rotate(90deg);
+  }
+  .prose :global(.tg > .tg-body) {
+    padding: 0.25rem 1.1rem 0.9rem;
+  }
+  .prose :global(.tg > .tg-body > *:first-child) { margin-top: 0; }
+  .prose :global(.tg > .tg-body > *:last-child) { margin-bottom: 0; }
+
+  /* ── カスタムノード: status chip ───────────── */
+  .prose :global(.chip) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    padding: 0 0.55rem;
+    height: 1.4rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    border: 1px solid currentColor;
+    line-height: 1;
+  }
+  .prose :global(.chip-ok) { color: var(--color-moss-500); }
+  .prose :global(.chip-ng) { color: var(--color-crimson-300); }
+  .prose :global(.chip-warn) { color: var(--color-gold-500); }
+  .prose :global(.chip-neutral) { color: var(--text-muted); }
 </style>
