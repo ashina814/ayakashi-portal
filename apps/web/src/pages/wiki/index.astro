@@ -1,15 +1,15 @@
 ---
 /**
- * /wiki — ページ一覧
+ * /wiki — ページ一覧（階層ツリー表示）
  *
- * 公開範囲制限は M3b で適用済み（getMemberRoleAliases → listPages）。
- * 編集 UI は M3c で追加。
+ * 公開範囲フィルタ済みの階層を取得して表示する。
+ * 同じツリーが AppShell のサイドバーにも入る。
  */
 
 import AppShell from "../../layouts/AppShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
-import { listPages } from "../../lib/repos/wiki";
+import { getWikiTree, type WikiTreeNode } from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
 
 if (!Astro.locals.session) {
@@ -22,33 +22,45 @@ const db = createDb(env.DATABASE_URL);
 const userId =
   (Astro.locals.session.user as { id?: string } | undefined)?.id;
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
-const pages = await listPages(db, aliases);
+const tree = await getWikiTree(db, aliases);
 
-const fmtDate = new Intl.DateTimeFormat("ja-JP", {
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-});
+const totalCount = countNodes(tree);
+
+function countNodes(nodes: WikiTreeNode[]): number {
+  return nodes.reduce((sum, n) => sum + 1 + countNodes(n.children), 0);
+}
 ---
 
-<AppShell title="巻物の蔵 — 妖ポータル" active="wiki">
+<AppShell title="巻物の蔵 — 妖ポータル" active="wiki" wikiTree={tree}>
   <header class="header">
     <h1>巻物の蔵</h1>
-    <p class="lede">妖たちが綴った記録の一覧。</p>
+    <p class="lede">妖たちが綴った記録。総数 {totalCount} 件。</p>
   </header>
 
-  <section class="pages">
-    {pages.length === 0 ? (
-      <div class="empty">まだ何も記されていない</div>
-    ) : (
-      pages.map((p) => (
-        <a class="page-link" href={`/wiki/${p.slug}`}>
-          <span class="title">{p.title}</span>
-          <span class="updated">{fmtDate.format(p.updatedAt)}</span>
-        </a>
-      ))
-    )}
-  </section>
+  {tree.length === 0 ? (
+    <div class="empty">まだ何も記されていない</div>
+  ) : (
+    <section class="categories">
+      {tree.map((root) => (
+        <article class="category">
+          <h2>
+            <a href={`/wiki/${root.slug}`}>{root.title}</a>
+          </h2>
+          {root.children.length > 0 ? (
+            <ul class="child-list">
+              {root.children.map((child) => (
+                <li>
+                  <a href={`/wiki/${child.slug}`}>{child.title}</a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="child-empty">（子ページなし）</p>
+          )}
+        </article>
+      ))}
+    </section>
+  )}
 </AppShell>
 
 <style>
@@ -56,7 +68,7 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin-bottom: 2rem;
+    margin-bottom: 2.5rem;
   }
   h1 {
     font-size: clamp(1.6rem, 4vw, 2.2rem);
@@ -67,43 +79,66 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     font-size: 0.95rem;
   }
 
-  .pages {
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--border-base);
-    border-radius: 10px;
-    background: var(--bg-elevated);
-    overflow: hidden;
-  }
-
-  .page-link {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 1rem;
-    padding: 1rem 1.5rem;
-    color: var(--text-primary);
-    border-top: 1px solid rgba(184, 149, 64, 0.08);
-    transition: background var(--dur-fast) var(--ease-out);
-  }
-  .page-link:first-child { border-top: none; }
-  .page-link:hover { background: rgba(184, 149, 64, 0.06); }
-
-  .title {
-    font-size: 1.05rem;
-    letter-spacing: 0.06em;
-  }
-
-  .updated {
-    font-size: 0.78rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-
   .empty {
     padding: 2.5rem 1.5rem;
     text-align: center;
     color: var(--text-muted);
     font-size: 0.9rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: rgba(184, 149, 64, 0.03);
+  }
+
+  .categories {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+  }
+
+  .category {
+    padding: 1.5rem 1.75rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: rgba(184, 149, 64, 0.03);
+  }
+
+  .category h2 {
+    margin: 0 0 0.85rem;
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(184, 149, 64, 0.15);
+  }
+  .category h2 a {
+    color: var(--text-primary);
+    border: none;
+  }
+  .category h2 a:hover { color: var(--color-gold-300); }
+
+  .child-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .child-list li::before {
+    content: "▸";
+    color: var(--color-gold-500);
+    margin-right: 0.5rem;
+    font-size: 0.7rem;
+  }
+  .child-list a {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    border: none;
+  }
+  .child-list a:hover { color: var(--color-gold-100); }
+
+  .child-empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0;
   }
 </style>

@@ -10,17 +10,28 @@
  *   title           : <title> 文字列
  *   active          : "home" | "me" | "wiki" (現在ハイライトしたい項目)
  *   contentVariant  : "default" | "prose"  (proseはWiki本文用、max-w-prose)
+ *   wikiTree        : Wiki 階層を sidebar 下部に展開表示する。Wiki 配下ページのみ渡す
+ *   activeWikiSlug  : ツリー上で現在の位置を金色ハイライトしたい slug
  */
 
 import "../styles/global.css";
+import type { WikiTreeNode } from "../lib/repos/wiki";
 
 interface Props {
   title: string;
   active?: "home" | "me" | "wiki";
   contentVariant?: "default" | "prose";
+  wikiTree?: WikiTreeNode[];
+  activeWikiSlug?: string;
 }
 
-const { title, active, contentVariant = "default" } = Astro.props;
+const {
+  title,
+  active,
+  contentVariant = "default",
+  wikiTree,
+  activeWikiSlug,
+} = Astro.props;
 
 const session = Astro.locals.session;
 const user = session?.user;
@@ -53,6 +64,7 @@ const navItems = [
           <span class="brand-name">妖ポータル</span>
         </a>
 
+        <div class="nav-and-tree">
         <nav class="nav" aria-label="主要ナビゲーション">
           {navItems.map((item) => (
             <a
@@ -64,6 +76,46 @@ const navItems = [
             </a>
           ))}
         </nav>
+
+        {wikiTree && wikiTree.length > 0 && (
+          <nav class="wiki-tree" aria-label="巻物の蔵 階層">
+            <div class="wiki-tree-label">巻物の蔵</div>
+            <ul class="wiki-tree-list">
+              {wikiTree.map((root) => (
+                <li>
+                  <a
+                    href={`/wiki/${root.slug}`}
+                    class:list={[
+                      "tree-link",
+                      "tree-link-root",
+                      { active: root.slug === activeWikiSlug },
+                    ]}
+                  >
+                    {root.title}
+                  </a>
+                  {root.children.length > 0 && (
+                    <ul class="wiki-tree-children">
+                      {root.children.map((child) => (
+                        <li>
+                          <a
+                            href={`/wiki/${child.slug}`}
+                            class:list={[
+                              "tree-link",
+                              { active: child.slug === activeWikiSlug },
+                            ]}
+                          >
+                            {child.title}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+        </div>
 
         <div class="user-footer">
           {user?.image && (
@@ -136,10 +188,70 @@ const navItems = [
         display: flex;
         flex-direction: column;
         gap: 0.125rem;
+      }
+
+      .nav-and-tree {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
       }
+
+      .wiki-tree {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-base);
+      }
+
+      .wiki-tree-label {
+        font-size: 0.68rem;
+        letter-spacing: 0.2em;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        padding: 0 0.85rem 0.25rem;
+      }
+
+      .wiki-tree-list,
+      .wiki-tree-children {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.05rem;
+      }
+
+      .wiki-tree-children {
+        margin-left: 0.85rem;
+        padding-left: 0.65rem;
+        border-left: 1px solid rgba(184, 149, 64, 0.12);
+        margin-top: 0.05rem;
+      }
+
+      .tree-link {
+        display: block;
+        padding: 0.35rem 0.85rem;
+        border-radius: 4px;
+        color: var(--text-secondary);
+        font-size: 0.86rem;
+        letter-spacing: 0.04em;
+        border: none;
+        transition: background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out);
+      }
+      .tree-link:hover {
+        background: rgba(184, 149, 64, 0.05);
+        color: var(--color-gold-100);
+      }
+      .tree-link.active {
+        color: var(--color-gold-100);
+        background: rgba(184, 149, 64, 0.1);
+      }
+      .tree-link-root { font-size: 0.92rem; }
 
       .nav-item {
         display: block;
@@ -220,13 +332,17 @@ const navItems = [
           gap: 1rem;
           padding: 1rem 1.25rem;
         }
+        .nav-and-tree {
+          flex: 1;
+          overflow: visible;
+        }
         .nav {
           flex-direction: row;
-          flex: 1;
           flex-wrap: wrap;
           gap: 0.25rem;
           overflow: visible;
         }
+        .wiki-tree { display: none; }
         .nav-item {
           padding: 0.4rem 0.75rem;
           border-left: none;

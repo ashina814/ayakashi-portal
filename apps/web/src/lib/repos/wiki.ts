@@ -5,7 +5,7 @@
  * 編集系（書き込み・楽観ロック・サニタイズ）は M3c で追加予定。
  */
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
 import { renderWikiContent, type TocEntry } from "../wiki/render";
@@ -14,6 +14,7 @@ export interface WikiPageListItem {
   id: string;
   slug: string;
   title: string;
+  parentId: string | null;
   updatedAt: Date;
 }
 
@@ -22,9 +23,21 @@ export interface WikiPageDetail extends WikiPageListItem {
   content: string;
   /** サーバーサイドでレンダリング済みの HTML（描画用） */
   contentHtml: string;
-  /** H2/H3 から抽出した目次。サイドバー TOC で使用 */
+  /** H2/H3 から抽出した目次 */
   toc: TocEntry[];
+  /** ルート→現在ページのパンくず（自身を末尾に含む） */
+  breadcrumbs: WikiCrumb[];
   revisionCreatedAt: Date | null;
+}
+
+export interface WikiCrumb {
+  id: string;
+  slug: string;
+  title: string;
+}
+
+export interface WikiTreeNode extends WikiPageListItem {
+  children: WikiTreeNode[];
 }
 
 /**
@@ -55,7 +68,7 @@ function buildVisibilityFilter(aliases: string[]) {
 }
 
 /**
- * 閲覧可能なページの一覧（更新日時降順）。
+ * 閲覧可能なページの一覧（更新日時降順、フラット）。
  */
 export async function listPages(
   db: NeonHttpDatabase<any>,
@@ -66,11 +79,75 @@ export async function listPages(
       id: wikiPages.id,
       slug: wikiPages.slug,
       title: wikiPages.title,
+      parentId: wikiPages.parentId,
       updatedAt: wikiPages.updatedAt,
     })
     .from(wikiPages)
     .where(buildVisibilityFilter(aliases))
     .orderBy(desc(wikiPages.updatedAt));
+}
+
+/**
+ * 閲覧可能なページを階層ツリーで返す。同階層内はタイトル昇順。
+ * 親が閲覧不可で子が閲覧可の「迷子」はルート扱いに浮上させる。
+ */
+export async function getWikiTree(
+  db: NeonHttpDatabase<any>,
+  aliases: string[],
+): Promise<WikiTreeNode[]> {
+  const flat = await db
+    .select({
+      id: wikiPages.id,
+      slug: wikiPages.slug,
+      title: wikiPages.title,
+      parentId: wikiPages.parentId,
+      updatedAt: wikiPages.updatedAt,
+    })
+    .from(wikiPages)
+    .where(buildVisibilityFilter(aliases))
+    .orderBy(asc(wikiPages.title));
+
+  const byId = new Map<string, WikiTreeNode>(
+    flat.map((p) => [p.id, { ...p, children: [] }]),
+  );
+
+  const roots: WikiTreeNode[] = [];
+  for (const node of byId.values()) {
+    if (node.parentId && byId.has(node.parentId)) {
+      byId.get(node.parentId)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+/**
+ * ルートから対象ページまでのパンくずを返す。深さ制限あり（無限ループ防止）。
+ */
+async function getBreadcrumbs(
+  db: NeonHttpDatabase<any>,
+  pageId: string,
+): Promise<WikiCrumb[]> {
+  const crumbs: WikiCrumb[] = [];
+  let currentId: string | null = pageId;
+  for (let depth = 0; depth < 10 && currentId; depth += 1) {
+    const [row] = await db
+      .select({
+        id: wikiPages.id,
+        slug: wikiPages.slug,
+        title: wikiPages.title,
+        parentId: wikiPages.parentId,
+      })
+      .from(wikiPages)
+      .where(eq(wikiPages.id, currentId))
+      .limit(1);
+    if (!row) break;
+    crumbs.unshift({ id: row.id, slug: row.slug, title: row.title });
+    currentId = row.parentId;
+  }
+  return crumbs;
 }
 
 /**
@@ -107,14 +184,18 @@ export async function getPageBySlug(
   }
 
   const rendered = renderWikiContent(content);
+  const breadcrumbs = await getBreadcrumbs(db, page.id);
+
   return {
     id: page.id,
     slug: page.slug,
     title: page.title,
+    parentId: page.parentId,
     updatedAt: page.updatedAt,
     content,
     contentHtml: rendered.html,
     toc: rendered.toc,
+    breadcrumbs,
     revisionCreatedAt,
   };
 }
