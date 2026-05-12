@@ -11,7 +11,7 @@
 import AppShell from "../../layouts/AppShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
-import { getPageBySlug } from "../../lib/repos/wiki";
+import { getPageBySlug, getWikiTree } from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
 
 if (!Astro.locals.session) {
@@ -29,7 +29,10 @@ const db = createDb(env.DATABASE_URL);
 const userId =
   (Astro.locals.session.user as { id?: string } | undefined)?.id;
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
-const page = await getPageBySlug(db, slug, aliases);
+const [page, tree] = await Promise.all([
+  getPageBySlug(db, slug, aliases),
+  getWikiTree(db, aliases),
+]);
 
 if (!page) {
   return new Response(null, { status: 404, statusText: "Not Found" });
@@ -42,9 +45,22 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
 });
 ---
 
-<AppShell title={`${page.title} — 巻物の蔵`} active="wiki">
-  <nav class="crumbs">
-    <a href="/wiki">← 巻物の蔵</a>
+<AppShell
+  title={`${page.title} — 巻物の蔵`}
+  active="wiki"
+  wikiTree={tree}
+  activeWikiSlug={page.slug}
+>
+  <nav class="crumbs" aria-label="パンくず">
+    <a href="/wiki">巻物の蔵</a>
+    {page.breadcrumbs.slice(0, -1).map((c) => (
+      <>
+        <span class="sep">›</span>
+        <a href={`/wiki/${c.slug}`}>{c.title}</a>
+      </>
+    ))}
+    <span class="sep">›</span>
+    <span class="current">{page.title}</span>
   </nav>
 
   <header class="page-header">
@@ -78,11 +94,17 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
 
 <style>
   .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 0.85rem;
     margin-bottom: 1rem;
   }
   .crumbs a { color: var(--text-secondary); }
   .crumbs a:hover { color: var(--color-gold-300); }
+  .crumbs .sep { color: var(--text-muted); opacity: 0.6; }
+  .crumbs .current { color: var(--text-primary); }
 
   .page-header {
     display: flex;
