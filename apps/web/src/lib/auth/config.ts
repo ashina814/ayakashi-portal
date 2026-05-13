@@ -72,7 +72,8 @@ export function createAuthConfig(env: {
     // カスタムページ
     pages: {
       signIn: "/login",
-      // error, signOut はデフォルトのままで OK
+      signOut: "/logout",
+      // error はデフォルトのままで OK
     },
 
     callbacks: {

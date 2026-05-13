@@ -33,7 +33,7 @@ const userId =
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 
 if (!hasWikiEditorPermission(aliases)) {
-  return new Response("Forbidden", { status: 403 });
+  return Astro.rewrite("/403");
 }
 
 const tree = await getWikiTree(db, aliases);

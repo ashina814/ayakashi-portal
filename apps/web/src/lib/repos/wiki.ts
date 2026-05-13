@@ -214,6 +214,21 @@ export async function updatePageContent(
 }
 
 /**
+ * ページを削除する。wiki_revisions / wiki_visibility は ON DELETE CASCADE で
+ * 自動的に消える。子ページの parent_id は ON DELETE SET NULL でルートに昇格する。
+ */
+export async function deletePage(
+  db: NeonHttpDatabase<any>,
+  pageId: string,
+): Promise<{ deleted: boolean }> {
+  const result = await db
+    .delete(wikiPages)
+    .where(eq(wikiPages.id, pageId))
+    .returning({ id: wikiPages.id });
+  return { deleted: result.length > 0 };
+}
+
+/**
  * 新しいページを作成し、初回 revision も同時に作る。
  * slug が衝突する場合は例外を投げる（呼び出し側でハンドリング）。
  */

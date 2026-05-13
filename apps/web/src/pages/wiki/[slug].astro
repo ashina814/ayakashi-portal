@@ -41,7 +41,7 @@ const [page, tree] = await Promise.all([
 const canEdit = hasWikiEditorPermission(aliases);
 
 if (!page) {
-  return new Response(null, { status: 404, statusText: "Not Found" });
+  return Astro.rewrite("/404");
 }
 
 const fmtDate = new Intl.DateTimeFormat("ja-JP", {
@@ -73,7 +73,15 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     <div class="header-row">
       <h1>{page.title}</h1>
       {canEdit && (
-        <a class="edit-btn" href={`/wiki/${page.slug}/edit`}>編む</a>
+        <div class="header-actions">
+          <a class="edit-btn" href={`/wiki/${page.slug}/edit`}>編む</a>
+          <button
+            type="button"
+            class="delete-btn"
+            data-delete-slug={page.slug}
+            data-delete-title={page.title}
+          >破棄</button>
+        </div>
       )}
     </div>
     <span class="meta">
@@ -102,6 +110,28 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     )}
   </div>
 </AppShell>
+
+<script>
+  const btn = document.querySelector<HTMLButtonElement>(".delete-btn[data-delete-slug]");
+  btn?.addEventListener("click", async () => {
+    const slug = btn.dataset.deleteSlug!;
+    const title = btn.dataset.deleteTitle ?? slug;
+    const ok = window.confirm(
+      `「${title}」を破棄します。\n\nこの巻物に紐づく全ての履歴も同時に消えます。\n本当に破棄しますか？`,
+    );
+    if (!ok) return;
+    btn.disabled = true;
+    const res = await fetch(`/api/wiki/${encodeURIComponent(slug)}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      window.location.assign("/wiki");
+    } else {
+      btn.disabled = false;
+      window.alert(`破棄に失敗しました: ${res.status} ${await res.text()}`);
+    }
+  });
+</script>
 
 <style>
   .crumbs {
@@ -135,18 +165,42 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     font-size: clamp(1.7rem, 4vw, 2.4rem);
     letter-spacing: 0.12em;
   }
-  .edit-btn {
+  .header-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .edit-btn,
+  .delete-btn {
     padding: 0.35rem 0.95rem;
-    border: 1px solid var(--color-gold-700);
     border-radius: 999px;
-    color: var(--color-gold-300);
     font-size: 0.85rem;
-    transition: background var(--dur-fast) var(--ease-out);
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .edit-btn {
+    border: 1px solid var(--color-gold-700);
+    color: var(--color-gold-300);
+    background: transparent;
   }
   .edit-btn:hover {
     background: rgba(184, 149, 64, 0.1);
     color: var(--color-gold-100);
     border-color: var(--color-gold-500);
+  }
+  .delete-btn {
+    border: 1px solid var(--color-crimson-700);
+    color: var(--color-crimson-300);
+    background: transparent;
+  }
+  .delete-btn:hover {
+    background: rgba(193, 40, 58, 0.1);
+    color: var(--color-crimson-300);
+    border-color: var(--color-crimson-500);
   }
   .meta {
     font-size: 0.78rem;

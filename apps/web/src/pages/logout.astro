@@ -1,0 +1,144 @@
+---
+/**
+ * /logout — 退散の確認画面
+ *
+ * auth/config.ts の pages.signOut として登録されており、
+ * Auth.js が GET /api/auth/signout で来た時にここへ誘導する。
+ * フォームは CSRF トークン付きで POST /api/auth/signout に送る。
+ */
+
+import "../styles/global.css";
+import { getCsrfToken } from "../lib/auth/helpers";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const csrfToken = await getCsrfToken(Astro.request, Astro.locals);
+const user = Astro.locals.session.user;
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>退散 — 妖ポータル</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap"
+    />
+  </head>
+  <body>
+    <main class="scene">
+      <div class="glow" aria-hidden="true"></div>
+      <span class="kanji" aria-hidden="true">散</span>
+      <h1>退散されますか</h1>
+      <p class="lede">
+        {user?.name ?? "そなた"} 殿、<br />
+        この座を離れる前に、いま一度お確かめを。
+      </p>
+
+      <form method="POST" action="/api/auth/signout" class="actions">
+        <input type="hidden" name="csrfToken" value={csrfToken} />
+        <input type="hidden" name="callbackUrl" value="/login" />
+        <a class="btn btn-ghost" href="/">思い直す</a>
+        <button class="btn btn-primary" type="submit">退散する</button>
+      </form>
+    </main>
+  </body>
+</html>
+
+<style>
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: "Yuji Syuku", serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .scene {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 3rem 2rem;
+    max-width: 30rem;
+    text-align: center;
+    z-index: 1;
+  }
+
+  .glow {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(
+      ellipse at 50% 35%,
+      rgba(224, 198, 132, 0.08) 0%,
+      transparent 55%
+    );
+    pointer-events: none;
+  }
+
+  .kanji {
+    font-size: clamp(7rem, 18vw, 11rem);
+    line-height: 1;
+    color: var(--color-ink-700);
+    text-shadow: 0 0 80px rgba(184, 149, 64, 0.2);
+    margin-bottom: -1rem;
+  }
+
+  h1 {
+    font-size: clamp(1.4rem, 3vw, 1.8rem);
+    letter-spacing: 0.18em;
+    margin: 0;
+  }
+
+  .lede {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.95;
+    margin: 0;
+  }
+
+  .actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .btn {
+    padding: 0.5rem 1.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-gold-700);
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .btn-ghost:hover {
+    color: var(--color-gold-100);
+    border-color: var(--color-gold-500);
+  }
+  .btn-primary {
+    background: var(--color-gold-700);
+    color: var(--color-gold-100);
+    border-color: var(--color-gold-500);
+  }
+  .btn-primary:hover {
+    background: var(--color-gold-500);
+    color: var(--color-ink-950);
+  }
+</style>
