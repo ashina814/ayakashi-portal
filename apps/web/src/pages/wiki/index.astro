@@ -15,6 +15,7 @@ import {
   type WikiTreeNode,
 } from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
+import { isAdmin } from "../../lib/auth/permissions";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
@@ -28,6 +29,7 @@ const userId =
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const tree = await getWikiTree(db, aliases);
 const canEdit = hasWikiEditorPermission(aliases);
+const userIsAdmin = isAdmin(aliases);
 
 const totalCount = countNodes(tree);
 
@@ -36,7 +38,7 @@ function countNodes(nodes: WikiTreeNode[]): number {
 }
 ---
 
-<AppShell title="巻物の蔵 — 妖ポータル" active="wiki" wikiTree={tree}>
+<AppShell title="巻物の蔵 — 妖ポータル" active="wiki" wikiTree={tree} isAdmin={userIsAdmin}>
   <header class="header">
     <div class="header-row">
       <h1>巻物の蔵</h1>

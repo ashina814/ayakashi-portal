@@ -9,14 +9,15 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
 import { renderWikiContent, type TocEntry } from "../wiki/render";
+import {
+  canEditWiki,
+  WIKI_EDITOR_ALIAS,
+} from "../auth/permissions";
 
-/** Wiki 編集権限を示す role alias。role_aliases にこの alias で行を入れて使用 */
-export const WIKI_EDITOR_ALIAS = "wiki_editor";
-
-/** ユーザーが Wiki 編集権限を持つか */
-export function hasWikiEditorPermission(aliases: string[]): boolean {
-  return aliases.includes(WIKI_EDITOR_ALIAS);
-}
+// 後方互換: permissions.ts に集約したものを再エクスポート
+export { WIKI_EDITOR_ALIAS };
+/** ユーザーが Wiki 編集権限を持つか（admin も含む） */
+export const hasWikiEditorPermission = canEditWiki;
 
 export interface WikiPageListItem {
   id: string;
@@ -211,6 +212,43 @@ export async function updatePageContent(
     .where(eq(wikiPages.id, args.pageId));
 
   return { ok: true, currentRevisionId: rev.id };
+}
+
+/**
+ * 対象ページの閲覧制限 alias 一覧を返す（空配列なら public）。
+ */
+export async function getPageVisibility(
+  db: NeonHttpDatabase<any>,
+  pageId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ alias: wikiVisibility.requiredRoleAlias })
+    .from(wikiVisibility)
+    .where(eq(wikiVisibility.pageId, pageId))
+    .orderBy(asc(wikiVisibility.requiredRoleAlias));
+  return rows.map((r) => r.alias);
+}
+
+/**
+ * 対象ページの閲覧制限 alias を replace-all で置き換える。
+ * 空配列を渡すと public（行を全削除）になる。
+ */
+export async function setPageVisibility(
+  db: NeonHttpDatabase<any>,
+  pageId: string,
+  aliases: string[],
+): Promise<void> {
+  // alias を正規化（重複・空白除去）
+  const unique = Array.from(
+    new Set(aliases.map((a) => a.trim()).filter((a) => a.length > 0)),
+  );
+
+  await db.delete(wikiVisibility).where(eq(wikiVisibility.pageId, pageId));
+  if (unique.length > 0) {
+    await db.insert(wikiVisibility).values(
+      unique.map((alias) => ({ pageId, requiredRoleAlias: alias })),
+    );
+  }
 }
 
 /**
