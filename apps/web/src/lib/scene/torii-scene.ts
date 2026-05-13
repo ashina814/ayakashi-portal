@@ -163,8 +163,8 @@ void main() {
 }
 `;
 
-/** 端末スペックから描画品質プリセットを決定する */
-type QualityTier = "high" | "low";
+/** 端末スペック + ビューポートから描画品質プリセットを決定する */
+type QualityTier = "high" | "mobile" | "low";
 interface QualityPreset {
   tier: QualityTier;
   toriiCount: number;
@@ -180,10 +180,12 @@ interface QualityPreset {
 }
 
 function detectQuality(): QualityPreset {
-  // navigator.hardwareConcurrency と deviceMemory の両方が貧弱なら low
+  // navigator の貧弱な値（古い iPhone / Android）は low に
   const cores = navigator.hardwareConcurrency || 8;
   const memory = (navigator as any).deviceMemory ?? 8;
   const isLowSpec = cores < 4 || memory < 4;
+  // viewport 幅が狭ければ mobile preset（描画負荷を抑える）
+  const isMobileViewport = window.innerWidth < 768;
 
   if (isLowSpec) {
     return {
@@ -191,10 +193,22 @@ function detectQuality(): QualityPreset {
       toriiCount: 8,
       foxfireCount: 6,
       dustCount: 120,
-      bloomStrength: 0, // bloom 完全 OFF
+      bloomStrength: 0,
       bloomRadius: 0,
       maxDpr: 1.25,
       confettiCount: 80,
+    };
+  }
+  if (isMobileViewport) {
+    return {
+      tier: "mobile",
+      toriiCount: 10,
+      foxfireCount: 8,
+      dustCount: 200,
+      bloomStrength: 0.55,
+      bloomRadius: 0.6,
+      maxDpr: 1.5,
+      confettiCount: 130,
     };
   }
   return {

@@ -98,7 +98,7 @@ const knownAliases = [
     {allAliases.length === 0 ? (
       <p class="empty">まだ何も貼られていない</p>
     ) : (
-      <table class="alias-table">
+      <div class="table-scroll"><table class="alias-table">
         <thead>
           <tr>
             <th>役名 (alias)</th>
@@ -124,7 +124,7 @@ const knownAliases = [
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     )}
   </section>
 </AppShell>
@@ -243,7 +243,8 @@ const knownAliases = [
     border-radius: 4px;
     color: var(--text-primary);
     font-family: inherit;
-    font-size: 0.95rem;
+    /* iOS auto-zoom 抑止のため 16px 以上 */
+    font-size: 1rem;
     padding: 0.5rem 0.7rem;
   }
   .field input:focus,
@@ -295,8 +296,14 @@ const knownAliases = [
     border-color: var(--color-crimson-500);
   }
 
+  .table-scroll {
+    overflow-x: auto;
+    /* iOS スクロール慣性 */
+    -webkit-overflow-scrolling: touch;
+  }
   .alias-table {
     width: 100%;
+    min-width: 32rem;
     border-collapse: collapse;
     font-size: 0.9rem;
   }
