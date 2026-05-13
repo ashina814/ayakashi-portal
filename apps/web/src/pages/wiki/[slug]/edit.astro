@@ -38,7 +38,7 @@ const userId =
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 
 if (!hasWikiEditorPermission(aliases)) {
-  return new Response("Forbidden", { status: 403 });
+  return Astro.rewrite("/403");
 }
 
 const [page, tree] = await Promise.all([
@@ -47,7 +47,7 @@ const [page, tree] = await Promise.all([
 ]);
 
 if (!page) {
-  return new Response(null, { status: 404, statusText: "Not Found" });
+  return Astro.rewrite("/404");
 }
 
 // 楽観ロック用に現在の current_revision_id を取り直す（getPageBySlug は revisionId 自体は返さないため）

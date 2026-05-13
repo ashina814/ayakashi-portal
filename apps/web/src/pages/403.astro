@@ -1,0 +1,114 @@
+---
+/**
+ * 403 — 結界が阻んでいます
+ *
+ * 各ページから明示的に `return Astro.rewrite("/403")` で呼ぶ。
+ */
+
+import "../styles/global.css";
+
+const session = Astro.locals.session;
+const homeHref = session ? "/" : "/login";
+const homeLabel = session ? "ハブへ戻る" : "参拝へ戻る";
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>結界が阻んでいます — 妖ポータル</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap"
+    />
+  </head>
+  <body>
+    <main class="scene">
+      <div class="glow" aria-hidden="true"></div>
+      <span class="kanji" aria-hidden="true">封</span>
+      <h1>結界が阻んでいます</h1>
+      <p class="lede">
+        この先は、しかるべき位を持つ妖のみが渡れます。<br />
+        然るべき役を授かってから、再び訪ねられませ。
+      </p>
+      <a class="home" href={homeHref}>{homeLabel}</a>
+    </main>
+  </body>
+</html>
+
+<style>
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: "Yuji Syuku", serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .scene {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 3rem 2rem;
+    max-width: 32rem;
+    text-align: center;
+    z-index: 1;
+  }
+
+  .glow {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(
+      ellipse at 50% 35%,
+      rgba(193, 40, 58, 0.08) 0%,
+      transparent 55%
+    );
+    pointer-events: none;
+  }
+
+  .kanji {
+    font-size: clamp(7rem, 18vw, 11rem);
+    line-height: 1;
+    color: var(--color-ink-700);
+    text-shadow: 0 0 80px rgba(193, 40, 58, 0.18);
+    margin-bottom: -1rem;
+  }
+
+  h1 {
+    font-size: clamp(1.4rem, 3vw, 1.8rem);
+    letter-spacing: 0.18em;
+    margin: 0;
+  }
+
+  .lede {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.95;
+    margin: 0;
+  }
+
+  .home {
+    margin-top: 1rem;
+    padding: 0.5rem 1.5rem;
+    border: 1px solid var(--color-gold-700);
+    border-radius: 999px;
+    color: var(--color-gold-100);
+    font-size: 0.9rem;
+    text-decoration: none;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .home:hover {
+    background: rgba(184, 149, 64, 0.1);
+    border-color: var(--color-gold-500);
+  }
+</style>
