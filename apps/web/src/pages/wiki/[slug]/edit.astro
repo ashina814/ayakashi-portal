@@ -1,0 +1,126 @@
+---
+/**
+ * /wiki/[slug]/edit — Tiptap エディタで wiki ページを編集する
+ *
+ * - 未認証は /login
+ * - wiki_editor alias を持たない場合は 403
+ * - 楽観ロック: 開いた時点の current_revision_id をエディタに渡し、
+ *   保存時に再確認する。
+ */
+
+import AppShell from "../../../layouts/AppShell.astro";
+import WikiEditor from "../../../components/WikiEditor.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../../../lib/auth/helpers";
+import {
+  getPageBySlug,
+  getWikiTree,
+  hasWikiEditorPermission,
+} from "../../../lib/repos/wiki";
+import { getMemberRoleAliases } from "../../../lib/repos/membership";
+import { wikiPages } from "@ayakashi/db";
+import { eq } from "drizzle-orm";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const { slug } = Astro.params;
+if (!slug) {
+  return Astro.redirect("/wiki");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+
+const userId =
+  (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+
+if (!hasWikiEditorPermission(aliases)) {
+  return new Response("Forbidden", { status: 403 });
+}
+
+const [page, tree] = await Promise.all([
+  getPageBySlug(db, slug, aliases),
+  getWikiTree(db, aliases),
+]);
+
+if (!page) {
+  return new Response(null, { status: 404, statusText: "Not Found" });
+}
+
+// 楽観ロック用に現在の current_revision_id を取り直す（getPageBySlug は revisionId 自体は返さないため）
+const [meta] = await db
+  .select({ currentRevisionId: wikiPages.currentRevisionId })
+  .from(wikiPages)
+  .where(eq(wikiPages.id, page.id))
+  .limit(1);
+---
+
+<AppShell
+  title={`編集: ${page.title} — 巻物の蔵`}
+  active="wiki"
+  wikiTree={tree}
+  activeWikiSlug={page.slug}
+>
+  <nav class="crumbs" aria-label="パンくず">
+    <a href="/wiki">巻物の蔵</a>
+    <span class="sep">›</span>
+    <a href={`/wiki/${page.slug}`}>{page.title}</a>
+    <span class="sep">›</span>
+    <span class="current">編集</span>
+  </nav>
+
+  <header class="page-header">
+    <h1>{page.title} を編む</h1>
+    <span class="meta">
+      slug: <code>{page.slug}</code>
+    </span>
+  </header>
+
+  <WikiEditor
+    initialContent={page.content}
+    apiEndpoint={`/api/wiki/${page.slug}`}
+    redirectOnSuccess={`/wiki/${page.slug}`}
+    expectedRevisionId={meta?.currentRevisionId ?? null}
+  />
+</AppShell>
+
+<style>
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+  }
+  .crumbs a { color: var(--text-secondary); }
+  .crumbs a:hover { color: var(--color-gold-300); }
+  .crumbs .sep { color: var(--text-muted); opacity: 0.6; }
+  .crumbs .current { color: var(--text-primary); }
+
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 1.5rem;
+  }
+  h1 {
+    font-size: clamp(1.4rem, 3vw, 1.9rem);
+    letter-spacing: 0.1em;
+  }
+  .meta {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .meta code {
+    background: rgba(10, 5, 9, 0.5);
+    border: 1px solid var(--border-base);
+    border-radius: 3px;
+    padding: 0.05rem 0.4rem;
+    font-family: "JetBrains Mono", monospace;
+    color: var(--color-mist-100);
+  }
+</style>

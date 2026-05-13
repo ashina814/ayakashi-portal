@@ -11,7 +11,11 @@
 import AppShell from "../../layouts/AppShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
-import { getPageBySlug, getWikiTree } from "../../lib/repos/wiki";
+import {
+  getPageBySlug,
+  getWikiTree,
+  hasWikiEditorPermission,
+} from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
 
 if (!Astro.locals.session) {
@@ -33,6 +37,8 @@ const [page, tree] = await Promise.all([
   getPageBySlug(db, slug, aliases),
   getWikiTree(db, aliases),
 ]);
+
+const canEdit = hasWikiEditorPermission(aliases);
 
 if (!page) {
   return new Response(null, { status: 404, statusText: "Not Found" });
@@ -64,7 +70,12 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
   </nav>
 
   <header class="page-header">
-    <h1>{page.title}</h1>
+    <div class="header-row">
+      <h1>{page.title}</h1>
+      {canEdit && (
+        <a class="edit-btn" href={`/wiki/${page.slug}/edit`}>編む</a>
+      )}
+    </div>
     <span class="meta">
       最終更新: {fmtDate.format(page.revisionCreatedAt ?? page.updatedAt)}
     </span>
@@ -114,9 +125,28 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     padding-bottom: 1.25rem;
     margin-bottom: 2rem;
   }
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
   h1 {
     font-size: clamp(1.7rem, 4vw, 2.4rem);
     letter-spacing: 0.12em;
+  }
+  .edit-btn {
+    padding: 0.35rem 0.95rem;
+    border: 1px solid var(--color-gold-700);
+    border-radius: 999px;
+    color: var(--color-gold-300);
+    font-size: 0.85rem;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .edit-btn:hover {
+    background: rgba(184, 149, 64, 0.1);
+    color: var(--color-gold-100);
+    border-color: var(--color-gold-500);
   }
   .meta {
     font-size: 0.78rem;
