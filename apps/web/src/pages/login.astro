@@ -155,14 +155,33 @@ const SERVER_NAME = "幽世";
           0 0 18px rgba(245, 231, 196, 0.18);
         animation: sway 4s ease-in-out infinite;
       }
+      /* ホバー中に点る青白い炎の輪（御札の周囲に滲む） */
+      .ofuda-button::before {
+        content: "";
+        position: absolute;
+        inset: -12px;
+        border-radius: 10px;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(184, 224, 255, 0.4) 0%,
+          rgba(184, 224, 255, 0.15) 35%,
+          transparent 70%
+        );
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+        z-index: -1;
+      }
       .ofuda-button:hover {
         box-shadow:
           0 4px 22px rgba(0, 0, 0, 0.65),
-          0 0 36px rgba(184, 224, 255, 0.4),
-          0 0 80px rgba(184, 224, 255, 0.18);
+          0 0 40px rgba(184, 224, 255, 0.5),
+          0 0 100px rgba(184, 224, 255, 0.22);
         transform: scale(1.04);
-        animation-play-state: paused;
+        /* 揺れの周期を 4s → 2.6s に短縮（≒ +50% 加速） */
+        animation: swayActive 2.6s ease-in-out infinite;
       }
+      .ofuda-button:hover::before { opacity: 1; }
       .ofuda-button:active { transform: scale(0.98); }
       .ofuda-text {
         writing-mode: vertical-rl;
@@ -213,6 +232,11 @@ const SERVER_NAME = "幽世";
       @keyframes sway {
         0%, 100% { transform: rotate(-0.5deg); }
         50%      { transform: rotate(0.5deg); }
+      }
+      /* ホバー時、振幅 ±0.5° → ±0.75°（+50%） */
+      @keyframes swayActive {
+        0%, 100% { transform: rotate(-0.75deg) scale(1.04); }
+        50%      { transform: rotate(0.75deg)  scale(1.04); }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -321,9 +345,20 @@ const SERVER_NAME = "幽世";
         "(prefers-reduced-motion: reduce)",
       ).matches;
       const sceneRoot = document.getElementById("scene-root");
+      const ofuda = document.getElementById("login-button");
       if (sceneRoot && !reducedMotion) {
         import("../lib/scene/torii-scene").then(({ initToriiScene }) => {
-          initToriiScene(sceneRoot);
+          const scene = initToriiScene(sceneRoot);
+          if (ofuda) {
+            ofuda.addEventListener("pointerenter", () =>
+              scene.setOfudaHover(true),
+            );
+            ofuda.addEventListener("pointerleave", () =>
+              scene.setOfudaHover(false),
+            );
+            ofuda.addEventListener("focus", () => scene.setOfudaHover(true));
+            ofuda.addEventListener("blur", () => scene.setOfudaHover(false));
+          }
         });
       }
     </script>

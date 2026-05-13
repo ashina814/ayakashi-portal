@@ -54,6 +54,8 @@ const FOXFIRE_COLOR = 0x9be0ff;
 
 export interface ToriiScene {
   dispose(): void;
+  /** 御札ホバー中の演出を切替。最寄りの狐火が御札の3D投影点に寄ってくる */
+  setOfudaHover(active: boolean): void;
 }
 
 /** ソフトな円形グラデーション texture（粒子・狐火の billboard 用） */
@@ -360,6 +362,25 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   composer.addPass(renderPass);
   composer.addPass(bloomPass);
 
+  // ─── マウス追従 & 御札ホバー状態 ────────────────
+  // 詳細設計 §3: yaw ±1.5°, pitch ±0.8°、0.5s ease-out
+  const mouseTarget = new Vector2(0, 0);
+  const mouseSmooth = new Vector2(0, 0);
+
+  const onPointerMove = (e: PointerEvent) => {
+    mouseTarget.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouseTarget.y = -((e.clientY / window.innerHeight) * 2 - 1);
+  };
+  window.addEventListener("pointermove", onPointerMove);
+
+  // 御札ホバー: 0 → 1 にゆっくり補間。狐火 2 体が引き寄せられる目印
+  let ofudaHoverTarget = 0;
+  let ofudaHoverFactor = 0;
+  // 御札の 3D 上のおおよその位置（画面中央下に重なるよう、カメラ近くに置く）
+  const ofudaWorldPos = new Vector3(0, 1.0, 5.5);
+  // 引き寄せる狐火のインデックス（手前 2 体を採用）
+  const ATTRACT_INDICES = [0, 1];
+
   // ─── アニメーション ────────────────────────────
   let rafId = 0;
   let running = true;
@@ -372,14 +393,20 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     const t = (performance.now() - startedAt) / 1000;
 
     if (!prefersReducedMotion) {
-      // カメラ呼吸: yaw ±0.4°、8s 周期。pitch も控えめに揺らす
-      const yaw = Math.sin(t * (Math.PI * 2) / 8) * (0.4 * Math.PI / 180);
-      const pitch = Math.sin(t * 0.3) * (0.2 * Math.PI / 180);
+      // マウス追従（フレーム約 60fps で 0.08 lerp → 0.5s 程度で到達）
+      mouseSmooth.lerp(mouseTarget, 0.08);
+
+      // カメラ呼吸 + マウス追従を合成
+      const breathYaw = Math.sin((t * (Math.PI * 2)) / 8) * (0.4 * Math.PI / 180);
+      const breathPitch = Math.sin(t * 0.3) * (0.2 * Math.PI / 180);
+      const mouseYaw = mouseSmooth.x * (1.5 * Math.PI / 180);
+      const mousePitch = mouseSmooth.y * (0.8 * Math.PI / 180);
+
       camera.position.x = Math.sin(t * 0.15) * 0.05;
       camera.position.y = 1.5 + Math.sin(t * 0.4) * 0.04;
       camera.lookAt(
-        Math.sin(yaw) * 4,
-        0.8 + Math.sin(pitch) * 4,
+        Math.sin(breathYaw + mouseYaw) * 4,
+        0.8 + Math.sin(breathPitch + mousePitch) * 4,
         -10,
       );
 
@@ -387,14 +414,28 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       mistBand.position.x = Math.sin(t * 0.18) * 1.5;
       mistBandNear.position.x = Math.sin(t * 0.22 + 1.2) * 1.0;
 
+      // 御札ホバーの補間（活性 0.06、解除 0.04 で 400ms 前後）
+      const hoverLerp = ofudaHoverTarget > ofudaHoverFactor ? 0.06 : 0.04;
+      ofudaHoverFactor += (ofudaHoverTarget - ofudaHoverFactor) * hoverLerp;
+
       // 狐火
       const posAttr = foxfire.geometry.getAttribute("position");
       for (let i = 0; i < FOXFIRE_COUNT; i += 1) {
         const p = foxfireParams[i];
         const phase = t * p.speed + p.phase;
-        const x = p.centerX + Math.cos(phase) * p.radiusX;
-        const z = p.centerZ + Math.sin(phase) * p.radiusZ;
-        const y = p.baseY + Math.sin(phase * 0.7) * p.yAmp;
+        const nx = p.centerX + Math.cos(phase) * p.radiusX;
+        const nz = p.centerZ + Math.sin(phase) * p.radiusZ;
+        const ny = p.baseY + Math.sin(phase * 0.7) * p.yAmp;
+
+        let x = nx;
+        let y = ny;
+        let z = nz;
+        if (ATTRACT_INDICES.includes(i) && ofudaHoverFactor > 0.001) {
+          // ホバー中は御札の位置に引き寄せる（lerp）
+          x = nx + (ofudaWorldPos.x - nx) * ofudaHoverFactor;
+          y = ny + (ofudaWorldPos.y - ny) * ofudaHoverFactor;
+          z = nz + (ofudaWorldPos.z - nz) * ofudaHoverFactor;
+        }
         posAttr.setXYZ(i, x, y, z);
       }
       posAttr.needsUpdate = true;
@@ -436,10 +477,14 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   document.addEventListener("visibilitychange", onVisChange);
 
   return {
+    setOfudaHover(active: boolean) {
+      ofudaHoverTarget = active ? 1 : 0;
+    },
     dispose() {
       running = false;
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("visibilitychange", onVisChange);
       composer.dispose();
       renderer.dispose();
