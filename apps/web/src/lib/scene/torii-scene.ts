@@ -163,6 +163,52 @@ void main() {
 }
 `;
 
+/** 端末スペックから描画品質プリセットを決定する */
+type QualityTier = "high" | "low";
+interface QualityPreset {
+  tier: QualityTier;
+  toriiCount: number;
+  foxfireCount: number;
+  dustCount: number;
+  /** UnrealBloomPass の strength。0 で bloom 自体を無効化 */
+  bloomStrength: number;
+  bloomRadius: number;
+  /** DPR の上限 */
+  maxDpr: number;
+  /** 紙吹雪の数 */
+  confettiCount: number;
+}
+
+function detectQuality(): QualityPreset {
+  // navigator.hardwareConcurrency と deviceMemory の両方が貧弱なら low
+  const cores = navigator.hardwareConcurrency || 8;
+  const memory = (navigator as any).deviceMemory ?? 8;
+  const isLowSpec = cores < 4 || memory < 4;
+
+  if (isLowSpec) {
+    return {
+      tier: "low",
+      toriiCount: 8,
+      foxfireCount: 6,
+      dustCount: 120,
+      bloomStrength: 0, // bloom 完全 OFF
+      bloomRadius: 0,
+      maxDpr: 1.25,
+      confettiCount: 80,
+    };
+  }
+  return {
+    tier: "high",
+    toriiCount: 14,
+    foxfireCount: 12,
+    dustCount: 320,
+    bloomStrength: 0.85,
+    bloomRadius: 0.7,
+    maxDpr: 2,
+    confettiCount: 200,
+  };
+}
+
 /** 鳥居 1 体分のジオメトリを単一 BufferGeometry に merge する */
 function buildToriiGeometry(): BufferGeometry {
   // 各パーツをローカル座標に配置（鳥居の足元中心が原点になるよう Y オフセット）
@@ -223,6 +269,9 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     "(prefers-reduced-motion: reduce)",
   ).matches;
 
+  // M4e: 低スペック検出。CPU / メモリが乏しい端末はパーティクル削減 + bloom OFF
+  const quality = detectQuality();
+
   const scene = new Scene();
   scene.background = new Color(INK_950);
   // 詳細設計に従い、奥行きを長く取る（山稜を fog の縁に置くため）
@@ -243,7 +292,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     alpha: false,
     powerPreference: "low-power",
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxDpr));
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
@@ -282,7 +331,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   scene.add(mountain);
 
   // ─── 鳥居（InstancedMesh で 14 体） ─────────────
-  const TORII_COUNT = 14;
+  const TORII_COUNT = quality.toriiCount;
   const toriiGeo = buildToriiGeometry();
   const toriiMat = new MeshStandardMaterial({
     color: VERMILION_500,
@@ -360,7 +409,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   // ─── 狐火 ─────────────────────────────────────
   // 二層構造: コア（ShaderMaterial + 縦長炎テクスチャ + ゆらぎ）と
   // 周囲の青いハロー（PointsMaterial、よりソフト・大型）。
-  const FOXFIRE_COUNT = 12;
+  const FOXFIRE_COUNT = quality.foxfireCount;
   const spriteTexture = makeSoftSpriteTexture();
   const flameTexture = makeFlameTexture();
 
@@ -460,7 +509,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   );
 
   // ─── 粒子 ─────────────────────────────────────
-  const DUST_COUNT = 320;
+  const DUST_COUNT = quality.dustCount;
   const dustGeo = new BufferGeometry();
   const dustPositions = new Float32Array(DUST_COUNT * 3);
   for (let i = 0; i < DUST_COUNT; i += 1) {
@@ -486,7 +535,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   scene.add(dust);
 
   // ─── 紙吹雪 (passthrough 演出用、最初は非表示) ──
-  const CONFETTI_COUNT = 200;
+  const CONFETTI_COUNT = quality.confettiCount;
   const confettiGeo = new BufferGeometry();
   const confettiPositions = new Float32Array(CONFETTI_COUNT * 3);
   const confettiVelocities = new Float32Array(CONFETTI_COUNT * 3);
@@ -513,19 +562,22 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   const confetti = new Points(confettiGeo, confettiMat);
   scene.add(confetti);
 
-  // ─── Bloom 後処理 ──────────────────────────────
+  // ─── Bloom 後処理（quality.bloomStrength === 0 なら無効化） ────
   const renderPass = new RenderPass(scene, camera);
-  const bloomPass = new UnrealBloomPass(
-    new Vector2(container.clientWidth, container.clientHeight),
-    0.85,
-    0.7,
-    0.15,
-  );
+  const bloomEnabled = quality.bloomStrength > 0;
+  const bloomPass = bloomEnabled
+    ? new UnrealBloomPass(
+        new Vector2(container.clientWidth, container.clientHeight),
+        quality.bloomStrength,
+        quality.bloomRadius,
+        0.15,
+      )
+    : null;
   const composer = new EffectComposer(renderer);
-  composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  composer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxDpr));
   composer.setSize(container.clientWidth, container.clientHeight);
   composer.addPass(renderPass);
-  composer.addPass(bloomPass);
+  if (bloomPass) composer.addPass(bloomPass);
 
   // ─── マウス追従 & 御札ホバー状態 ────────────────
   // 詳細設計 §3: yaw ±1.5°, pitch ±0.8°、0.5s ease-out
@@ -707,7 +759,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
     composer.setSize(w, h);
-    bloomPass.setSize(w, h);
+    bloomPass?.setSize(w, h);
   };
   window.addEventListener("resize", onResize);
 
