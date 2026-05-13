@@ -199,8 +199,8 @@ const SERVER_NAME = "幽世";
         align-items: end;
       }
       .mute-toggle {
-        width: 2.4rem;
-        height: 2.4rem;
+        width: 2.8rem;
+        height: 2.8rem;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -209,12 +209,15 @@ const SERVER_NAME = "幽世";
         background: rgba(10, 5, 9, 0.5);
         color: rgba(245, 231, 196, 0.65);
         font-family: inherit;
-        font-size: 1rem;
+        font-size: 1.05rem;
         cursor: pointer;
         backdrop-filter: blur(4px);
         transition:
           color 0.2s ease,
           border-color 0.2s ease;
+        /* iOS Safari でタップ強調を抑える */
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
       }
       .mute-toggle:hover {
         color: #f5e7c4;
@@ -293,10 +296,19 @@ const SERVER_NAME = "幽世";
         .ofuda-button { animation: none; }
       }
 
+      /* タッチ専用端末: hover が無いので御札の glow を常時うっすら点ける */
+      @media (hover: none) {
+        .ofuda-button::before { opacity: 0.55; }
+      }
+
       @media (max-width: 480px) {
         .ofuda-button { width: 3.6rem; height: 9rem; }
         .ofuda-text { font-size: 1.3rem; }
         .skip { font-size: 0.72rem; padding: 0.3rem 0.7rem; }
+        .server-name { margin-top: 1.5rem; letter-spacing: 0.25em; }
+        .mute-toggle { width: 3rem; height: 3rem; font-size: 1.15rem; }
+        .ui { padding: 1rem; }
+        .center { padding-bottom: 2.5rem; }
       }
     </style>
   </head>

@@ -159,7 +159,8 @@ a:hover {
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.95rem;
+  /* iOS の auto-zoom（フォーカス時に画面が拡大される）を抑えるため 16px 以上を維持 */
+  font-size: 1rem;
   line-height: 1.7;
   padding: 0.75rem 1rem;
   resize: vertical;
@@ -169,4 +170,12 @@ a:hover {
 .ay-textarea:focus {
   border-color: var(--color-gold-500);
   outline: none;
+}
+
+/* タッチ端末向けの汎用調整 */
+@media (hover: none) {
+  /* ボタンのフォーカスリングを少し太く */
+  :focus-visible {
+    outline-width: 3px;
+  }
 }

@@ -57,7 +57,7 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
   {members.length === 0 ? (
     <p class="empty">まだ誰も参拝に来ていない</p>
   ) : (
-    <table class="members-table">
+    <div class="table-scroll"><table class="members-table">
       <thead>
         <tr>
           <th></th>
@@ -82,7 +82,7 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   )}
 </AppShell>
 
@@ -123,13 +123,17 @@ const fmtDate = new Intl.DateTimeFormat("ja-JP", {
     background: rgba(184, 149, 64, 0.03);
   }
 
-  .members-table {
-    width: 100%;
-    border-collapse: collapse;
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     border: 1px solid var(--border-base);
     border-radius: 10px;
-    overflow: hidden;
     background: rgba(184, 149, 64, 0.03);
+  }
+  .members-table {
+    width: 100%;
+    min-width: 34rem;
+    border-collapse: collapse;
   }
   .members-table th,
   .members-table td {
