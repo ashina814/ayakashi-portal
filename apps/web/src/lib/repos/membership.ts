@@ -55,6 +55,61 @@ export async function getMemberWithRoles(
 /** members.bio の最大文字数（クライアント / サーバー両方で参照） */
 export const BIO_MAX_LENGTH = 1000;
 
+/** メンバー総数（admin ダッシュ用） */
+export async function countMembers(
+  db: NeonHttpDatabase<any>,
+): Promise<number> {
+  const rows = await db.select({ id: members.id }).from(members);
+  return rows.length;
+}
+
+export interface MemberListItem {
+  id: string;
+  userId: string;
+  userName: string | null;
+  userImage: string | null;
+  nickname: string | null;
+  joinedAt: Date | null;
+  roleCount: number;
+}
+
+/**
+ * 全メンバーの一覧（admin 用）。ロール数は GROUP BY で集計。
+ * Bot 未稼働時は roleCount = 0 のまま。
+ */
+export async function listAllMembers(
+  db: NeonHttpDatabase<any>,
+): Promise<MemberListItem[]> {
+  // 二段クエリ: 行と roleCount を別取得して TS でマージ（neon-http は GROUP BY も使えるが
+  // 集計関数の型推論が薄いので分離した方が安全）。
+  const baseRows = await db
+    .select({
+      id: members.id,
+      userId: members.userId,
+      userName: users.name,
+      userImage: users.image,
+      nickname: members.nickname,
+      joinedAt: members.joinedAt,
+    })
+    .from(members)
+    .innerJoin(users, eq(users.id, members.userId))
+    .orderBy(asc(members.joinedAt));
+
+  const roleRows = await db
+    .select({ memberId: memberRoles.memberId, roleId: memberRoles.roleId })
+    .from(memberRoles);
+
+  const counts = new Map<string, number>();
+  for (const r of roleRows) {
+    counts.set(r.memberId, (counts.get(r.memberId) ?? 0) + 1);
+  }
+
+  return baseRows.map((m) => ({
+    ...m,
+    roleCount: counts.get(m.id) ?? 0,
+  }));
+}
+
 /**
  * ユーザーが保持するロールに紐づく alias 集合を返す。
  * members → member_roles → role_aliases の join。

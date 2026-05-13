@@ -77,6 +77,40 @@ function buildVisibilityFilter(aliases: string[]) {
 }
 
 /**
+ * 全ページの総数（admin ダッシュ用、visibility 無視）。
+ */
+export async function countAllPages(
+  db: NeonHttpDatabase<any>,
+): Promise<number> {
+  const rows = await db.select({ id: wikiPages.id }).from(wikiPages);
+  return rows.length;
+}
+
+/**
+ * 直近 N 件の編集（wiki_revisions 降順、ページタイトル付き）。
+ */
+export async function listRecentRevisions(
+  db: NeonHttpDatabase<any>,
+  limit = 5,
+): Promise<
+  { revisionId: string; pageId: string; slug: string; title: string; authorId: string; at: Date }[]
+> {
+  return await db
+    .select({
+      revisionId: wikiRevisions.id,
+      pageId: wikiPages.id,
+      slug: wikiPages.slug,
+      title: wikiPages.title,
+      authorId: wikiRevisions.authorId,
+      at: wikiRevisions.createdAt,
+    })
+    .from(wikiRevisions)
+    .innerJoin(wikiPages, eq(wikiPages.id, wikiRevisions.pageId))
+    .orderBy(desc(wikiRevisions.createdAt))
+    .limit(limit);
+}
+
+/**
  * 閲覧可能なページの一覧（更新日時降順、フラット）。
  */
 export async function listPages(

@@ -1,0 +1,333 @@
+---
+/**
+ * /admin — 運営の間（ガワ）
+ *
+ * 管理機能への入口を並べた小ダッシュ。実装済の役名管理 / メンバー一覧 /
+ * Wiki 統計 / 監査ログを表示。活動量と通知キューは「準備中」プレースホルダ。
+ * admin alias 必須。
+ */
+
+import AppShell from "../../layouts/AppShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../../lib/auth/helpers";
+import {
+  getMemberRoleAliases,
+  countMembers,
+} from "../../lib/repos/membership";
+import { isAdmin } from "../../lib/auth/permissions";
+import {
+  countAllPages,
+  listRecentRevisions,
+} from "../../lib/repos/wiki";
+import {
+  countAuditLog,
+  listRecentAuditLog,
+} from "../../lib/repos/audit";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+
+const userId =
+  (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+
+if (!isAdmin(aliases)) {
+  return Astro.rewrite("/403");
+}
+
+const [memberCount, pageCount, auditCount, recentEdits, recentAudit] =
+  await Promise.all([
+    countMembers(db),
+    countAllPages(db),
+    countAuditLog(db),
+    listRecentRevisions(db, 5),
+    listRecentAuditLog(db, 5),
+  ]);
+
+const fmtDateTime = new Intl.DateTimeFormat("ja-JP", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const tiles = [
+  {
+    href: "/admin/aliases",
+    label: "役名管理",
+    desc: "Discord ロールに alias を貼って権限を授ける",
+    state: "live" as const,
+  },
+  {
+    href: "/admin/members",
+    label: "メンバー一覧",
+    desc: `総 ${memberCount} 人。入鯖日とロール数を一望`,
+    state: "live" as const,
+  },
+  {
+    href: "/wiki",
+    label: "巻物の蔵",
+    desc: `総 ${pageCount} 巻。新規・編集・破棄の入口`,
+    state: "live" as const,
+  },
+  {
+    href: null,
+    label: "活動量",
+    desc: "Discord での発言や滞在を可視化（Bot 着任後）",
+    state: "soon" as const,
+  },
+  {
+    href: null,
+    label: "通知キュー",
+    desc: "Web → Discord 通知を流す仕組み（Bot 着任後）",
+    state: "soon" as const,
+  },
+];
+---
+
+<AppShell title="運営の間 — 妖ポータル" active="admin" isAdmin>
+  <header class="page-header">
+    <h1>運営の間</h1>
+    <p class="lede">
+      運営の手筈・記録・配下の妖たち。<br />
+      ここから役名や巻物、メンバーの記録に手を入れる。
+    </p>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <span class="stat-label">配下の妖</span>
+      <span class="stat-value">{memberCount}</span>
+      <span class="stat-unit">人</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">巻物</span>
+      <span class="stat-value">{pageCount}</span>
+      <span class="stat-unit">巻</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">監査の記</span>
+      <span class="stat-value">{auditCount}</span>
+      <span class="stat-unit">件</span>
+    </div>
+  </section>
+
+  <section class="tiles">
+    {tiles.map((t) => (
+      t.href ? (
+        <a class="tile tile-live" href={t.href}>
+          <span class="tile-state">入口あり</span>
+          <span class="tile-label">{t.label}</span>
+          <span class="tile-desc">{t.desc}</span>
+        </a>
+      ) : (
+        <div class="tile tile-soon" aria-disabled="true">
+          <span class="tile-state">準備中</span>
+          <span class="tile-label">{t.label}</span>
+          <span class="tile-desc">{t.desc}</span>
+        </div>
+      )
+    ))}
+  </section>
+
+  <section class="recent">
+    <article class="recent-col">
+      <h2>直近の編み（Wiki）</h2>
+      {recentEdits.length === 0 ? (
+        <p class="empty">まだ何も書かれていない</p>
+      ) : (
+        <ul class="recent-list">
+          {recentEdits.map((r) => (
+            <li>
+              <a href={`/wiki/${r.slug}`}>{r.title}</a>
+              <span class="when">{fmtDateTime.format(r.at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+
+    <article class="recent-col">
+      <h2>直近の記（監査）</h2>
+      {recentAudit.length === 0 ? (
+        <p class="empty">記録された動きはまだない</p>
+      ) : (
+        <ul class="recent-list">
+          {recentAudit.map((a) => (
+            <li>
+              <span class="action">{a.action}</span>
+              <span class="actor">{a.userName ?? "—"}</span>
+              <span class="when">{fmtDateTime.format(a.at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+  </section>
+</AppShell>
+
+<style>
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+  h1 {
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: 0.16em;
+  }
+  .lede {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.85;
+  }
+
+  /* 統計バンド */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: rgba(184, 149, 64, 0.03);
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: baseline;
+    gap: 0.15rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .stat-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .stat-value {
+    font-size: 1.8rem;
+    font-family: "Yuji Syuku", serif;
+    color: var(--color-gold-100);
+    line-height: 1;
+  }
+  .stat-unit {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  /* タイル */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: box-shadow var(--dur-fast) var(--ease-out);
+  }
+  .tile-live:hover {
+    box-shadow: var(--elev-2);
+  }
+  .tile-soon {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .tile-state {
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-gold-500);
+  }
+  .tile-soon .tile-state { color: var(--text-muted); }
+  .tile-label {
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+  }
+  .tile-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+
+  /* 直近 */
+  .recent {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+  @media (max-width: 720px) {
+    .recent { grid-template-columns: 1fr; }
+  }
+  .recent-col {
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: rgba(184, 149, 64, 0.03);
+  }
+  .recent-col h2 {
+    font-size: 0.85rem;
+    letter-spacing: 0.16em;
+    color: var(--color-gold-300);
+    margin: 0 0 0.85rem;
+    text-transform: uppercase;
+  }
+  .recent-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.88rem;
+  }
+  .recent-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: baseline;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(184, 149, 64, 0.06);
+  }
+  .recent-list li:last-child { border-bottom: none; }
+  .recent-list a {
+    color: var(--text-primary);
+    border: none;
+  }
+  .recent-list a:hover { color: var(--color-gold-300); }
+  .recent-list .action {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.82rem;
+    color: var(--color-gold-100);
+  }
+  .recent-list .actor {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .recent-list .when {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0;
+  }
+</style>

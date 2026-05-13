@@ -44,7 +44,7 @@ const navItems = [
   { key: "me", href: "/me", label: "マイページ" },
   { key: "wiki", href: "/wiki", label: "巻物の蔵" },
   ...(isAdmin
-    ? ([{ key: "admin", href: "/admin/aliases", label: "管理" }] as const)
+    ? ([{ key: "admin", href: "/admin", label: "管理" }] as const)
     : []),
 ] as const;
 ---
