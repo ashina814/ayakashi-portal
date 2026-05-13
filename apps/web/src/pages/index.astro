@@ -2,8 +2,8 @@
 /**
  * 妖ポータル — ハブ（トップページ）
  *
- * 認証済みなら歓迎メッセージ、未認証は /login にリダイレクト。
- * M5 で襖 UI に差し替え予定。
+ * 中央に「妖」の文字を抱えた襖の合わせ目、下に各画面への入口。
+ * シネマティック遷移は M9 で本実装。今は静的な構図 + 軽いホバーモーション。
  */
 
 import AppShell from "../layouts/AppShell.astro";
@@ -22,78 +22,214 @@ const db = createDb(env.DATABASE_URL);
 const userId = (user as { id?: string } | undefined)?.id;
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const userIsAdmin = isAdmin(aliases);
+
+const greeting = user?.name ?? "名無しの妖";
+
+const entries: { href: string; label: string; desc: string; show: boolean }[] = [
+  { href: "/me", label: "己が記録", desc: "役・入鯖日・自己紹介", show: true },
+  { href: "/wiki", label: "巻物の蔵", desc: "知の集積、編んで残す", show: true },
+  { href: "/admin", label: "運営の間", desc: "役名・メンバー・記録", show: userIsAdmin },
+];
 ---
 
 <AppShell title="妖ポータル" active="home" isAdmin={userIsAdmin}>
-  <section class="hero">
-    <h1>ようこそ、{user?.name ?? "名無しの妖"} 殿</h1>
-    <p class="lede">
-      お主の記録は左の項目より辿られたし。<br />
-      巻物の蔵には他の妖たちが残した知見が眠る。
-    </p>
-
-    <div class="cta-grid">
-      <a class="cta-card" href="/me">
-        <span class="cta-title">マイページ</span>
-        <span class="cta-desc">己の役割・入鯖日・自己紹介を確かめる</span>
-      </a>
-      <a class="cta-card" href="/wiki">
-        <span class="cta-title">巻物の蔵</span>
-        <span class="cta-desc">妖たちが綴った記録を辿る</span>
-      </a>
+  <section class="fusuma" aria-label="ハブ">
+    <div class="panel panel-left" aria-hidden="true"></div>
+    <div class="seam" aria-hidden="true">
+      <div class="seam-glyph"><span>妖</span></div>
     </div>
+    <div class="panel panel-right" aria-hidden="true"></div>
+
+    <header class="welcome">
+      <span class="kana">ようこそ</span>
+      <h1>{greeting} 殿</h1>
+      <p class="lede">
+        この座より、各々の場所へ参られませ。
+      </p>
+    </header>
+
+    <nav class="entries" aria-label="主な行き先">
+      {entries
+        .filter((e) => e.show)
+        .map((e) => (
+          <a class="entry" href={e.href}>
+            <span class="entry-label">{e.label}</span>
+            <span class="entry-desc">{e.desc}</span>
+            <span class="entry-arrow" aria-hidden="true">→</span>
+          </a>
+        ))}
+    </nav>
   </section>
 </AppShell>
 
 <style>
-  .hero {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    padding-block: 2rem 4rem;
+  .fusuma {
+    position: relative;
+    padding: 3rem 1rem 2rem;
+    min-height: 36rem;
+    isolation: isolate;
+    overflow: hidden;
+    border-radius: 12px;
   }
 
+  /* 二枚の襖。和紙質感を radial-gradient + 細かい線で模す */
+  .panel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    background:
+      linear-gradient(180deg, rgba(20, 9, 15, 0.35), rgba(31, 18, 25, 0.35)),
+      repeating-linear-gradient(
+        0deg,
+        rgba(184, 149, 64, 0.04) 0,
+        rgba(184, 149, 64, 0.04) 1px,
+        transparent 1px,
+        transparent 4px
+      );
+    pointer-events: none;
+    transition: transform var(--dur-slow) var(--ease-out);
+    z-index: 0;
+  }
+  .panel-left {
+    left: 0;
+    border-right: 1px solid rgba(184, 149, 64, 0.18);
+  }
+  .panel-right {
+    right: 0;
+    border-left: 1px solid rgba(184, 149, 64, 0.18);
+  }
+
+  /* ホバーで合わせ目がほんの少しだけ開く（M9 で大きく開く演出を入れる予定） */
+  .fusuma:hover .panel-left { transform: translateX(-0.25rem); }
+  .fusuma:hover .panel-right { transform: translateX(0.25rem); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel { transition: none; }
+    .fusuma:hover .panel-left,
+    .fusuma:hover .panel-right { transform: none; }
+  }
+
+  /* 合わせ目の縦光 */
+  .seam {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(224, 198, 132, 0.35) 30%,
+      rgba(224, 198, 132, 0.35) 70%,
+      transparent 100%
+    );
+    z-index: 0;
+  }
+  .seam-glyph {
+    position: absolute;
+    top: 22%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 5rem;
+    height: 5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-base);
+    border: 1px solid var(--color-gold-700);
+    border-radius: 50%;
+    box-shadow:
+      0 0 40px rgba(224, 198, 132, 0.18),
+      inset 0 0 24px rgba(224, 198, 132, 0.08);
+  }
+  .seam-glyph span {
+    font-size: 2.2rem;
+    color: var(--color-gold-100);
+    letter-spacing: 0;
+  }
+
+  /* 中央テキスト */
+  .welcome {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 9rem;
+    text-align: center;
+  }
+  .kana {
+    font-size: 0.75rem;
+    letter-spacing: 0.4em;
+    color: var(--text-muted);
+  }
   h1 {
     font-size: clamp(1.8rem, 4vw, 2.6rem);
-    letter-spacing: 0.12em;
-    line-height: 1.35;
+    letter-spacing: 0.16em;
+    margin: 0;
   }
-
   .lede {
     color: var(--text-secondary);
-    font-size: 1rem;
-    line-height: 1.9;
-    max-width: 36rem;
+    font-size: 0.95rem;
+    margin: 0;
   }
 
-  .cta-grid {
+  /* 入口カード */
+  .entries {
+    position: relative;
+    z-index: 1;
+    margin-top: 3rem;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem;
+    max-width: 48rem;
+    margin-inline: auto;
   }
-
-  .cta-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1.5rem 1.75rem;
-    background: var(--bg-elevated);
-    border-radius: 10px;
-    box-shadow: var(--elev-1);
+  .entry {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 0.2rem 1rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-gold-700);
+    border-radius: 8px;
+    background: rgba(10, 5, 9, 0.55);
+    backdrop-filter: blur(2px);
     color: var(--text-primary);
-    transition: box-shadow var(--dur-fast) var(--ease-out);
+    text-decoration: none;
+    transition:
+      transform var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
-  .cta-card:hover {
-    box-shadow: var(--elev-2);
+  .entry:hover {
+    transform: translateY(-1px);
+    background: rgba(184, 149, 64, 0.08);
+    border-color: var(--color-gold-500);
   }
-
-  .cta-title {
-    font-size: 1.1rem;
+  .entry-label {
+    font-size: 1.05rem;
     letter-spacing: 0.08em;
+    color: var(--color-gold-100);
+    grid-column: 1;
   }
-  .cta-desc {
-    font-size: 0.88rem;
+  .entry-desc {
+    font-size: 0.82rem;
     color: var(--text-secondary);
+    grid-column: 1;
+  }
+  .entry-arrow {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    align-self: center;
+    color: var(--color-gold-500);
+    font-size: 1.2rem;
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .entry:hover .entry-arrow {
+    transform: translateX(0.25rem);
   }
 </style>

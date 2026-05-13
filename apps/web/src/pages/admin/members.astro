@@ -1,0 +1,176 @@
+---
+/**
+ * /admin/members — メンバー一覧（admin 用）
+ *
+ * 全メンバーを表で表示。名前 / ニックネーム / 入鯖日 / 保有ロール数。
+ * 詳細閲覧・編集は M10 以降。
+ */
+
+import AppShell from "../../layouts/AppShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../../lib/auth/helpers";
+import {
+  getMemberRoleAliases,
+  listAllMembers,
+} from "../../lib/repos/membership";
+import { isAdmin } from "../../lib/auth/permissions";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+
+const userId =
+  (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+
+if (!isAdmin(aliases)) {
+  return Astro.rewrite("/403");
+}
+
+const members = await listAllMembers(db);
+
+const fmtDate = new Intl.DateTimeFormat("ja-JP", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<AppShell title="メンバー一覧 — 妖ポータル" active="admin" isAdmin>
+  <nav class="crumbs" aria-label="パンくず">
+    <a href="/admin">運営の間</a>
+    <span class="sep">›</span>
+    <span class="current">メンバー一覧</span>
+  </nav>
+
+  <header class="page-header">
+    <h1>配下の妖 ({members.length} 人)</h1>
+    <p class="lede">
+      Discord OAuth でログインしたことのある全メンバー。<br />
+      ロール数は Bot 着任後に正確になる（OAuth 時に取得した時点の値）。
+    </p>
+  </header>
+
+  {members.length === 0 ? (
+    <p class="empty">まだ誰も参拝に来ていない</p>
+  ) : (
+    <table class="members-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>表示名</th>
+          <th>ニックネーム</th>
+          <th>入鯖日</th>
+          <th>ロール</th>
+        </tr>
+      </thead>
+      <tbody>
+        {members.map((m) => (
+          <tr>
+            <td class="cell-avatar">
+              {m.userImage && (
+                <img src={m.userImage} alt="" width="32" height="32" />
+              )}
+            </td>
+            <td class="cell-name">{m.userName ?? "—"}</td>
+            <td class="cell-nick">{m.nickname ?? "—"}</td>
+            <td class="cell-date">{m.joinedAt ? fmtDate.format(m.joinedAt) : "—"}</td>
+            <td class="cell-roles">{m.roleCount}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AppShell>
+
+<style>
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+  }
+  .crumbs a { color: var(--text-secondary); }
+  .crumbs .sep { color: var(--text-muted); opacity: 0.6; }
+  .crumbs .current { color: var(--text-primary); }
+
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+  h1 {
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    letter-spacing: 0.12em;
+  }
+  .lede {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.85;
+  }
+  .empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 3rem 1rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: rgba(184, 149, 64, 0.03);
+  }
+
+  .members-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(184, 149, 64, 0.03);
+  }
+  .members-table th,
+  .members-table td {
+    padding: 0.65rem 0.85rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(184, 149, 64, 0.06);
+    font-size: 0.9rem;
+  }
+  .members-table th {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    background: rgba(10, 5, 9, 0.3);
+  }
+  .members-table tr:last-child td {
+    border-bottom: none;
+  }
+  .members-table tr:hover td {
+    background: rgba(184, 149, 64, 0.04);
+  }
+
+  .cell-avatar {
+    width: 3rem;
+  }
+  .cell-avatar img {
+    border-radius: 50%;
+    border: 1px solid rgba(184, 149, 64, 0.3);
+  }
+  .cell-name { color: var(--text-primary); }
+  .cell-nick { color: var(--text-secondary); }
+  .cell-date {
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-size: 0.82rem;
+  }
+  .cell-roles {
+    color: var(--color-gold-100);
+    text-align: right;
+    font-family: "JetBrains Mono", monospace;
+    width: 4rem;
+  }
+</style>
