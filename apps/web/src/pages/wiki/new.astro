@@ -4,6 +4,7 @@
  *
  * メタ情報（slug, title, parent）はフォーム、本文は Tiptap エディタ。
  * クライアントスクリプトで2つをまとめて POST /api/wiki/new に送る。
+ * ツールバー・ヘルプは WikiEditor.astro と共通の設定（editor-toolbar.ts）。
  */
 
 import AppShell from "../../layouts/AppShell.astro";
@@ -15,6 +16,10 @@ import {
   type WikiTreeNode,
 } from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
+import {
+  TOOLBAR_GROUPS,
+  SHORTCUT_HINTS,
+} from "../../lib/wiki/editor-toolbar";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
@@ -33,10 +38,9 @@ if (!hasWikiEditorPermission(aliases)) {
 
 const tree = await getWikiTree(db, aliases);
 
-// flatten tree to (slug, label) list for parent select
 function flatten(nodes: WikiTreeNode[], depth = 0): { slug: string; label: string }[] {
   return nodes.flatMap((n) => [
-    { slug: n.slug, label: `${"  ".repeat(depth)}${n.title}` },
+    { slug: n.slug, label: `${"　".repeat(depth)}${n.title}` },
     ...flatten(n.children, depth + 1),
   ]);
 }
@@ -87,49 +91,79 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
     </label>
   </form>
 
-  <!-- 編集本文 -->
-  <div
-    class="we-root"
-    data-api="/api/wiki/new"
-    data-redirect-prefix="/wiki/"
-  >
+  <div class="we-root" data-api="/api/wiki/new">
     <div class="we-toolbar" role="toolbar" aria-label="編集ツール">
-      <div class="we-group">
-        <button type="button" class="we-btn" data-cmd="h2">H2</button>
-        <button type="button" class="we-btn" data-cmd="h3">H3</button>
-        <button type="button" class="we-btn" data-cmd="paragraph">¶</button>
-      </div>
-      <div class="we-group">
-        <button type="button" class="we-btn" data-cmd="bold"><strong>B</strong></button>
-        <button type="button" class="we-btn" data-cmd="italic"><em>I</em></button>
-        <button type="button" class="we-btn" data-cmd="strike"><s>S</s></button>
-        <button type="button" class="we-btn" data-cmd="code">{`</>`}</button>
-      </div>
-      <div class="we-group">
-        <button type="button" class="we-btn" data-cmd="bulletList">•</button>
-        <button type="button" class="we-btn" data-cmd="orderedList">1.</button>
-        <button type="button" class="we-btn" data-cmd="blockquote">❝</button>
-        <button type="button" class="we-btn" data-cmd="codeBlock">{`{}`}</button>
-        <button type="button" class="we-btn" data-cmd="hr">—</button>
-        <button type="button" class="we-btn" data-cmd="link">🔗</button>
-      </div>
-      <div class="we-group">
-        <button type="button" class="we-btn" data-insert="callout:note">📓</button>
-        <button type="button" class="we-btn" data-insert="callout:warning">⚠</button>
-        <button type="button" class="we-btn" data-insert="callout:danger">🚫</button>
-        <button type="button" class="we-btn" data-insert="callout:success">✓</button>
-        <button type="button" class="we-btn" data-insert="toggle">▶</button>
-      </div>
-      <div class="we-group">
-        <button type="button" class="we-btn" data-insert="chip:ok">○</button>
-        <button type="button" class="we-btn" data-insert="chip:ng">×</button>
-        <button type="button" class="we-btn" data-insert="chip:warn">△</button>
-      </div>
+      {TOOLBAR_GROUPS.map((group) => (
+        <div class="we-group" aria-label={group.name}>
+          {group.items.map((item) => (
+            <button
+              type="button"
+              class="we-btn"
+              title={item.title}
+              data-cmd={item.cmd}
+              data-insert={item.insert}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ))}
       <div class="we-spacer"></div>
       <span class="we-status" data-status>未保存</span>
+      <button type="button" class="we-btn we-btn-help" data-help-open>？ヘルプ</button>
       <button type="button" class="we-btn we-btn-primary" data-action="save">作成して開く</button>
     </div>
     <div class="we-area" data-editor></div>
+
+    <dialog class="we-help" data-help-dialog aria-labelledby="we-help-title-new">
+      <header class="we-help-head">
+        <h2 id="we-help-title-new">編集ツールの使い方</h2>
+        <button type="button" class="we-btn we-btn-ghost" data-help-close>閉じる</button>
+      </header>
+
+      <section class="we-help-section">
+        <h3>道具一覧</h3>
+        <p class="we-help-lede">
+          ツールバーの各ボタンを押すと、現在のカーソル位置に対して動作します。
+          範囲選択してから装飾系を押すと、その範囲だけが対象になります。
+        </p>
+        <table class="we-help-table">
+          <tbody>
+            {TOOLBAR_GROUPS.flatMap((g) =>
+              g.items.map((it) => (
+                <tr>
+                  <th>{it.label}</th>
+                  <td>{it.title}</td>
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="we-help-section">
+        <h3>キーボードショートカット</h3>
+        <table class="we-help-table">
+          <tbody>
+            {SHORTCUT_HINTS.map((s) => (
+              <tr>
+                <th class="we-help-kbd">{s.keys}</th>
+                <td>{s.meaning}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="we-help-section">
+        <h3>もっと知りたい</h3>
+        <p>
+          <a href="/wiki/guide" target="_blank" rel="noopener">
+            ▸ 編集ガイド（実例付き）を別タブで開く
+          </a>
+        </p>
+      </section>
+    </dialog>
   </div>
 </AppShell>
 
@@ -138,6 +172,7 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
   import StarterKit from "@tiptap/starter-kit";
   import Link from "@tiptap/extension-link";
   import { Callout, Toggle, StatusChip } from "../../lib/wiki/editor";
+  import { bindToolbar, bindHelpDialog } from "../../lib/wiki/editor-bind";
 
   const root = document.querySelector<HTMLElement>(".we-root")!;
   const form = document.querySelector<HTMLFormElement>("#meta-form")!;
@@ -156,59 +191,8 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
     content: { type: "doc", content: [{ type: "paragraph" }] },
   });
 
-  // ツールバー（edit page と同じ実装、雛形が小さいのでこの2ファイルでは一旦複製）
-  for (const btn of root.querySelectorAll<HTMLButtonElement>(".we-btn[data-cmd]")) {
-    btn.addEventListener("click", () => {
-      const cmd = btn.dataset.cmd!;
-      const chain = editor.chain().focus();
-      switch (cmd) {
-        case "h2": chain.toggleHeading({ level: 2 }).run(); break;
-        case "h3": chain.toggleHeading({ level: 3 }).run(); break;
-        case "paragraph": chain.setParagraph().run(); break;
-        case "bold": chain.toggleBold().run(); break;
-        case "italic": chain.toggleItalic().run(); break;
-        case "strike": chain.toggleStrike().run(); break;
-        case "code": chain.toggleCode().run(); break;
-        case "bulletList": chain.toggleBulletList().run(); break;
-        case "orderedList": chain.toggleOrderedList().run(); break;
-        case "blockquote": chain.toggleBlockquote().run(); break;
-        case "codeBlock": chain.toggleCodeBlock().run(); break;
-        case "hr": chain.setHorizontalRule().run(); break;
-        case "link": {
-          const url = window.prompt("リンクURL", "https://");
-          if (url) chain.setLink({ href: url }).run();
-          else chain.unsetLink().run();
-          break;
-        }
-      }
-    });
-  }
-  for (const btn of root.querySelectorAll<HTMLButtonElement>(".we-btn[data-insert]")) {
-    btn.addEventListener("click", () => {
-      const ins = btn.dataset.insert!;
-      const chain = editor.chain().focus();
-      if (ins.startsWith("callout:")) {
-        const variant = ins.split(":")[1];
-        chain.insertContent({
-          type: "callout",
-          attrs: { variant, title: variant === "note" ? "覚書" : variant === "warning" ? "注意" : variant === "danger" ? "危険" : variant === "success" ? "成功" : null },
-          content: [{ type: "paragraph", content: [{ type: "text", text: "本文" }] }],
-        }).run();
-      } else if (ins === "toggle") {
-        chain.insertContent({
-          type: "toggle",
-          attrs: { summary: "クリックで開く" },
-          content: [{ type: "paragraph", content: [{ type: "text", text: "中身" }] }],
-        }).run();
-      } else if (ins.startsWith("chip:")) {
-        const variant = ins.split(":")[1];
-        chain.insertContent({
-          type: "statusChip",
-          attrs: { variant, label: variant === "ok" ? "○" : variant === "ng" ? "×" : "△" },
-        }).run();
-      }
-    });
-  }
+  bindToolbar(root, editor);
+  bindHelpDialog(root);
 
   const saveBtn = root.querySelector<HTMLButtonElement>("[data-action=save]")!;
   saveBtn.addEventListener("click", async () => {
@@ -277,7 +261,6 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
     border-radius: 8px;
     background: rgba(184, 149, 64, 0.03);
   }
-
   .field {
     display: flex;
     flex-direction: column;
@@ -309,7 +292,7 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
     color: var(--text-muted);
   }
 
-  /* 共通エディタ class（WikiEditor.astro と整合） */
+  /* ── 以下、WikiEditor.astro と同じ class 群を再宣言（scoped 分離のため） ── */
   .we-root {
     display: flex;
     flex-direction: column;
@@ -330,8 +313,9 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
   }
   .we-group {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.2rem;
-    padding-right: 0.4rem;
+    padding-right: 0.5rem;
     border-right: 1px solid rgba(184, 149, 64, 0.15);
   }
   .we-group:last-of-type { border-right: none; }
@@ -341,21 +325,28 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
     color: var(--text-secondary);
     border: 1px solid transparent;
     border-radius: 4px;
-    padding: 0.25rem 0.55rem;
+    padding: 0.3rem 0.65rem;
     font-family: inherit;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     cursor: pointer;
-    min-width: 1.8rem;
+    white-space: nowrap;
   }
   .we-btn:hover {
     background: rgba(184, 149, 64, 0.08);
     color: var(--color-gold-100);
   }
+  .we-btn-help {
+    border: 1px solid rgba(184, 149, 64, 0.3);
+    color: var(--color-gold-300);
+  }
+  .we-btn-help:hover { border-color: var(--color-gold-500); }
+  .we-btn-ghost { color: var(--text-secondary); }
   .we-btn-primary {
     background: var(--color-gold-700);
     color: var(--color-gold-100);
     border-color: var(--color-gold-500);
-    padding: 0.35rem 1rem;
+    padding: 0.4rem 1.1rem;
+    font-size: 0.88rem;
   }
   .we-btn-primary:hover {
     background: var(--color-gold-500);
@@ -373,4 +364,76 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
     background: rgba(10, 5, 9, 0.3);
   }
   .we-area :global(.ProseMirror) { outline: none; min-height: 22rem; }
+
+  .we-help {
+    width: min(640px, 92vw);
+    max-height: 86dvh;
+    border: 1px solid var(--border-base);
+    border-radius: 12px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    padding: 0;
+  }
+  .we-help::backdrop {
+    background: rgba(10, 5, 9, 0.7);
+    backdrop-filter: blur(4px);
+  }
+  .we-help-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-base);
+    position: sticky;
+    top: 0;
+    background: var(--bg-surface);
+  }
+  .we-help-head h2 {
+    font-size: 1.05rem;
+    letter-spacing: 0.1em;
+    margin: 0;
+  }
+  .we-help-section {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid rgba(184, 149, 64, 0.1);
+  }
+  .we-help-section:last-of-type { border-bottom: none; }
+  .we-help-section h3 {
+    font-size: 0.85rem;
+    letter-spacing: 0.16em;
+    color: var(--color-gold-300);
+    margin: 0 0 0.75rem;
+    text-transform: uppercase;
+  }
+  .we-help-lede {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0 0 0.85rem;
+    line-height: 1.7;
+  }
+  .we-help-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .we-help-table th,
+  .we-help-table td {
+    text-align: left;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid rgba(184, 149, 64, 0.08);
+    vertical-align: top;
+  }
+  .we-help-table th {
+    color: var(--color-gold-100);
+    font-weight: 500;
+    white-space: nowrap;
+    width: 12rem;
+  }
+  .we-help-table td {
+    color: var(--text-secondary);
+  }
+  .we-help-kbd {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+  }
 </style>
