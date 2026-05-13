@@ -14,10 +14,13 @@ import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../../lib/auth/helpers";
 import {
   getPageBySlug,
+  getPageVisibility,
   getWikiTree,
   hasWikiEditorPermission,
 } from "../../../lib/repos/wiki";
+import { listRoleAliases } from "../../../lib/repos/admin";
 import { getMemberRoleAliases } from "../../../lib/repos/membership";
+import { isAdmin } from "../../../lib/auth/permissions";
 import { wikiPages } from "@ayakashi/db";
 import { eq } from "drizzle-orm";
 
@@ -51,11 +54,17 @@ if (!page) {
 }
 
 // 楽観ロック用に現在の current_revision_id を取り直す（getPageBySlug は revisionId 自体は返さないため）
-const [meta] = await db
-  .select({ currentRevisionId: wikiPages.currentRevisionId })
-  .from(wikiPages)
-  .where(eq(wikiPages.id, page.id))
-  .limit(1);
+const [meta, visibility, knownAliases] = await Promise.all([
+  db
+    .select({ currentRevisionId: wikiPages.currentRevisionId })
+    .from(wikiPages)
+    .where(eq(wikiPages.id, page.id))
+    .limit(1)
+    .then((rows) => rows[0]),
+  getPageVisibility(db, page.id),
+  listRoleAliases(db),
+]);
+const userIsAdmin = isAdmin(aliases);
 ---
 
 <AppShell
@@ -63,6 +72,7 @@ const [meta] = await db
   active="wiki"
   wikiTree={tree}
   activeWikiSlug={page.slug}
+  isAdmin={userIsAdmin}
 >
   <nav class="crumbs" aria-label="パンくず">
     <a href="/wiki">巻物の蔵</a>
@@ -85,7 +95,86 @@ const [meta] = await db
     redirectOnSuccess={`/wiki/${page.slug}`}
     expectedRevisionId={meta?.currentRevisionId ?? null}
   />
+
+  <section class="visibility-card" data-visibility-section data-slug={page.slug}>
+    <header>
+      <h2>閲覧制限</h2>
+      <p class="lede">
+        ここに役名 (alias) を1つ以上入れると、その役を持つ妖だけがこのページを見られる。
+        空にすると誰でも見られる（全公開）。
+      </p>
+    </header>
+
+    <div class="vis-current">
+      <span class="vis-label">現在の制限:</span>
+      {visibility.length === 0 ? (
+        <span class="vis-public">公開（誰でも閲覧可）</span>
+      ) : (
+        <div class="vis-chips">
+          {visibility.map((a) => (
+            <code class="vis-chip">{a}</code>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <form class="vis-form" id="vis-form">
+      <label class="field">
+        <span class="label">許可する役名（カンマ区切りで複数指定可）</span>
+        <input
+          type="text"
+          name="aliases"
+          list="known-aliases-edit"
+          value={visibility.join(", ")}
+          placeholder="wiki_editor, admin"
+        />
+        <datalist id="known-aliases-edit">
+          {knownAliases.map((a) => (
+            <option value={a.alias}>{a.roleName}</option>
+          ))}
+        </datalist>
+        <span class="hint">空欄にすると全公開に戻る</span>
+      </label>
+      <div class="vis-actions">
+        <span class="status" data-vis-status></span>
+        <button type="submit" class="ay-btn">この制限で固める</button>
+      </div>
+    </form>
+  </section>
 </AppShell>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>("#vis-form");
+  const section = document.querySelector<HTMLElement>("[data-visibility-section]");
+  if (form && section) {
+    const statusEl = form.querySelector<HTMLElement>("[data-vis-status]")!;
+    const slug = section.dataset.slug!;
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const raw = String(new FormData(form).get("aliases") ?? "");
+      const aliases = raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      statusEl.textContent = "保存中…";
+      const res = await fetch(
+        `/api/wiki/${encodeURIComponent(slug)}/visibility`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ aliases }),
+        },
+      );
+      if (res.ok) {
+        statusEl.textContent = "保存しました";
+        // 表示更新のために軽くリロード
+        window.location.reload();
+      } else {
+        statusEl.textContent = `失敗: ${res.status} ${await res.text()}`;
+      }
+    });
+  }
+</script>
 
 <style>
   .crumbs {
@@ -122,5 +211,99 @@ const [meta] = await db
     padding: 0.05rem 0.4rem;
     font-family: "JetBrains Mono", monospace;
     color: var(--color-mist-100);
+  }
+
+  .visibility-card {
+    margin-top: 2rem;
+    padding: 1.5rem 1.75rem;
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    background: rgba(184, 149, 64, 0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .visibility-card h2 {
+    font-size: 1rem;
+    letter-spacing: 0.1em;
+    color: var(--color-gold-300);
+    margin: 0 0 0.5rem;
+  }
+  .visibility-card .lede {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.75;
+    margin: 0;
+  }
+
+  .vis-current {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .vis-label {
+    color: var(--text-muted);
+  }
+  .vis-public {
+    color: var(--color-moss-500);
+  }
+  .vis-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .vis-chip {
+    background: rgba(10, 5, 9, 0.5);
+    border: 1px solid var(--border-base);
+    border-radius: 3px;
+    padding: 0.05rem 0.45rem;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.82em;
+    color: var(--color-gold-100);
+  }
+
+  .vis-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .vis-form .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .vis-form .label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+  .vis-form input {
+    background: rgba(10, 5, 9, 0.5);
+    border: 1px solid var(--border-base);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.95rem;
+    padding: 0.5rem 0.7rem;
+  }
+  .vis-form input:focus {
+    outline: none;
+    border-color: var(--color-gold-500);
+  }
+  .vis-form .hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .vis-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1rem;
+  }
+  .vis-actions .status {
+    font-size: 0.82rem;
+    color: var(--text-muted);
   }
 </style>

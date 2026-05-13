@@ -7,15 +7,24 @@
  */
 
 import AppShell from "../layouts/AppShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../lib/auth/helpers";
+import { getMemberRoleAliases } from "../lib/repos/membership";
+import { isAdmin } from "../lib/auth/permissions";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
 }
 
 const user = Astro.locals.session.user;
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+const userId = (user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+const userIsAdmin = isAdmin(aliases);
 ---
 
-<AppShell title="妖ポータル" active="home">
+<AppShell title="妖ポータル" active="home" isAdmin={userIsAdmin}>
   <section class="hero">
     <h1>ようこそ、{user?.name ?? "名無しの妖"} 殿</h1>
     <p class="lede">

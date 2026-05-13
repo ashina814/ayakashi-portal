@@ -19,10 +19,12 @@ import type { WikiTreeNode } from "../lib/repos/wiki";
 
 interface Props {
   title: string;
-  active?: "home" | "me" | "wiki";
+  active?: "home" | "me" | "wiki" | "admin";
   contentVariant?: "default" | "prose";
   wikiTree?: WikiTreeNode[];
   activeWikiSlug?: string;
+  /** true なら 管理 ナビ項目を追加で表示する */
+  isAdmin?: boolean;
 }
 
 const {
@@ -31,6 +33,7 @@ const {
   contentVariant = "default",
   wikiTree,
   activeWikiSlug,
+  isAdmin = false,
 } = Astro.props;
 
 const session = Astro.locals.session;
@@ -40,6 +43,9 @@ const navItems = [
   { key: "home", href: "/", label: "ハブ" },
   { key: "me", href: "/me", label: "マイページ" },
   { key: "wiki", href: "/wiki", label: "巻物の蔵" },
+  ...(isAdmin
+    ? ([{ key: "admin", href: "/admin/aliases", label: "管理" }] as const)
+    : []),
 ] as const;
 ---
 
