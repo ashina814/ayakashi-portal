@@ -10,6 +10,14 @@ import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { wikiPages, wikiRevisions, wikiVisibility } from "@ayakashi/db";
 import { renderWikiContent, type TocEntry } from "../wiki/render";
 
+/** Wiki 編集権限を示す role alias。role_aliases にこの alias で行を入れて使用 */
+export const WIKI_EDITOR_ALIAS = "wiki_editor";
+
+/** ユーザーが Wiki 編集権限を持つか */
+export function hasWikiEditorPermission(aliases: string[]): boolean {
+  return aliases.includes(WIKI_EDITOR_ALIAS);
+}
+
 export interface WikiPageListItem {
   id: string;
   slug: string;
@@ -148,6 +156,101 @@ async function getBreadcrumbs(
     currentId = row.parentId;
   }
   return crumbs;
+}
+
+export interface UpdateContentResult {
+  ok: boolean;
+  /** 競合時は最新の current_revision_id を返す */
+  currentRevisionId: string | null;
+}
+
+/**
+ * ページの本文を新しい revision として保存し、wiki_pages.current_revision_id を
+ * 楽観ロックで更新する。expectedRevisionId が現在の DB 値と一致しない場合は
+ * 競合扱いで { ok: false } を返す。
+ */
+export async function updatePageContent(
+  db: NeonHttpDatabase<any>,
+  args: {
+    pageId: string;
+    content: string;
+    authorId: string;
+    /** 編集開始時点の current_revision_id（null なら未保存状態を期待） */
+    expectedRevisionId: string | null;
+  },
+): Promise<UpdateContentResult> {
+  const [page] = await db
+    .select({ currentRevisionId: wikiPages.currentRevisionId })
+    .from(wikiPages)
+    .where(eq(wikiPages.id, args.pageId))
+    .limit(1);
+
+  if (!page) {
+    return { ok: false, currentRevisionId: null };
+  }
+
+  if ((page.currentRevisionId ?? null) !== (args.expectedRevisionId ?? null)) {
+    return { ok: false, currentRevisionId: page.currentRevisionId ?? null };
+  }
+
+  const [rev] = await db
+    .insert(wikiRevisions)
+    .values({
+      pageId: args.pageId,
+      content: args.content,
+      authorId: args.authorId,
+    })
+    .returning({ id: wikiRevisions.id });
+
+  await db
+    .update(wikiPages)
+    .set({
+      currentRevisionId: rev.id,
+      updatedAt: new Date(),
+    })
+    .where(eq(wikiPages.id, args.pageId));
+
+  return { ok: true, currentRevisionId: rev.id };
+}
+
+/**
+ * 新しいページを作成し、初回 revision も同時に作る。
+ * slug が衝突する場合は例外を投げる（呼び出し側でハンドリング）。
+ */
+export async function createPage(
+  db: NeonHttpDatabase<any>,
+  args: {
+    slug: string;
+    title: string;
+    parentId: string | null;
+    content: string;
+    authorId: string;
+  },
+): Promise<{ id: string; slug: string }> {
+  const [page] = await db
+    .insert(wikiPages)
+    .values({
+      slug: args.slug,
+      title: args.title,
+      parentId: args.parentId,
+    })
+    .returning({ id: wikiPages.id, slug: wikiPages.slug });
+
+  const [rev] = await db
+    .insert(wikiRevisions)
+    .values({
+      pageId: page.id,
+      content: args.content,
+      authorId: args.authorId,
+    })
+    .returning({ id: wikiRevisions.id });
+
+  await db
+    .update(wikiPages)
+    .set({ currentRevisionId: rev.id, updatedAt: new Date() })
+    .where(eq(wikiPages.id, page.id));
+
+  return page;
 }
 
 /**

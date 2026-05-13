@@ -1,0 +1,376 @@
+---
+/**
+ * /wiki/new — 新しい wiki ページを作る
+ *
+ * メタ情報（slug, title, parent）はフォーム、本文は Tiptap エディタ。
+ * クライアントスクリプトで2つをまとめて POST /api/wiki/new に送る。
+ */
+
+import AppShell from "../../layouts/AppShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../../lib/auth/helpers";
+import {
+  getWikiTree,
+  hasWikiEditorPermission,
+  type WikiTreeNode,
+} from "../../lib/repos/wiki";
+import { getMemberRoleAliases } from "../../lib/repos/membership";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+
+const userId =
+  (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+
+if (!hasWikiEditorPermission(aliases)) {
+  return new Response("Forbidden", { status: 403 });
+}
+
+const tree = await getWikiTree(db, aliases);
+
+// flatten tree to (slug, label) list for parent select
+function flatten(nodes: WikiTreeNode[], depth = 0): { slug: string; label: string }[] {
+  return nodes.flatMap((n) => [
+    { slug: n.slug, label: `${"  ".repeat(depth)}${n.title}` },
+    ...flatten(n.children, depth + 1),
+  ]);
+}
+const parentOptions = flatten(tree);
+
+const presetParent = Astro.url.searchParams.get("parent") ?? "";
+---
+
+<AppShell
+  title="新しい巻物 — 巻物の蔵"
+  active="wiki"
+  wikiTree={tree}
+>
+  <nav class="crumbs" aria-label="パンくず">
+    <a href="/wiki">巻物の蔵</a>
+    <span class="sep">›</span>
+    <span class="current">新規作成</span>
+  </nav>
+
+  <header class="page-header">
+    <h1>新しい巻物を編む</h1>
+  </header>
+
+  <form class="meta-form" id="meta-form">
+    <label class="field">
+      <span class="label">slug</span>
+      <input
+        type="text"
+        name="slug"
+        required
+        pattern="[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?"
+        placeholder="hello-world"
+      />
+      <span class="hint">英小文字・数字・ハイフン（1〜64文字）。URL の一部になる。</span>
+    </label>
+    <label class="field">
+      <span class="label">タイトル</span>
+      <input type="text" name="title" required maxlength="200" />
+    </label>
+    <label class="field">
+      <span class="label">親ページ（任意）</span>
+      <select name="parentSlug">
+        <option value="">— ルート —</option>
+        {parentOptions.map((opt) => (
+          <option value={opt.slug} selected={opt.slug === presetParent}>{opt.label}</option>
+        ))}
+      </select>
+    </label>
+  </form>
+
+  <!-- 編集本文 -->
+  <div
+    class="we-root"
+    data-api="/api/wiki/new"
+    data-redirect-prefix="/wiki/"
+  >
+    <div class="we-toolbar" role="toolbar" aria-label="編集ツール">
+      <div class="we-group">
+        <button type="button" class="we-btn" data-cmd="h2">H2</button>
+        <button type="button" class="we-btn" data-cmd="h3">H3</button>
+        <button type="button" class="we-btn" data-cmd="paragraph">¶</button>
+      </div>
+      <div class="we-group">
+        <button type="button" class="we-btn" data-cmd="bold"><strong>B</strong></button>
+        <button type="button" class="we-btn" data-cmd="italic"><em>I</em></button>
+        <button type="button" class="we-btn" data-cmd="strike"><s>S</s></button>
+        <button type="button" class="we-btn" data-cmd="code">{`</>`}</button>
+      </div>
+      <div class="we-group">
+        <button type="button" class="we-btn" data-cmd="bulletList">•</button>
+        <button type="button" class="we-btn" data-cmd="orderedList">1.</button>
+        <button type="button" class="we-btn" data-cmd="blockquote">❝</button>
+        <button type="button" class="we-btn" data-cmd="codeBlock">{`{}`}</button>
+        <button type="button" class="we-btn" data-cmd="hr">—</button>
+        <button type="button" class="we-btn" data-cmd="link">🔗</button>
+      </div>
+      <div class="we-group">
+        <button type="button" class="we-btn" data-insert="callout:note">📓</button>
+        <button type="button" class="we-btn" data-insert="callout:warning">⚠</button>
+        <button type="button" class="we-btn" data-insert="callout:danger">🚫</button>
+        <button type="button" class="we-btn" data-insert="callout:success">✓</button>
+        <button type="button" class="we-btn" data-insert="toggle">▶</button>
+      </div>
+      <div class="we-group">
+        <button type="button" class="we-btn" data-insert="chip:ok">○</button>
+        <button type="button" class="we-btn" data-insert="chip:ng">×</button>
+        <button type="button" class="we-btn" data-insert="chip:warn">△</button>
+      </div>
+      <div class="we-spacer"></div>
+      <span class="we-status" data-status>未保存</span>
+      <button type="button" class="we-btn we-btn-primary" data-action="save">作成して開く</button>
+    </div>
+    <div class="we-area" data-editor></div>
+  </div>
+</AppShell>
+
+<script>
+  import { Editor } from "@tiptap/core";
+  import StarterKit from "@tiptap/starter-kit";
+  import Link from "@tiptap/extension-link";
+  import { Callout, Toggle, StatusChip } from "../../lib/wiki/editor";
+
+  const root = document.querySelector<HTMLElement>(".we-root")!;
+  const form = document.querySelector<HTMLFormElement>("#meta-form")!;
+  const target = root.querySelector<HTMLElement>("[data-editor]")!;
+  const statusEl = root.querySelector<HTMLElement>("[data-status]")!;
+
+  const editor = new Editor({
+    element: target,
+    extensions: [
+      StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
+      Link.configure({ openOnClick: false, autolink: true }),
+      Callout,
+      Toggle,
+      StatusChip,
+    ],
+    content: { type: "doc", content: [{ type: "paragraph" }] },
+  });
+
+  // ツールバー（edit page と同じ実装、雛形が小さいのでこの2ファイルでは一旦複製）
+  for (const btn of root.querySelectorAll<HTMLButtonElement>(".we-btn[data-cmd]")) {
+    btn.addEventListener("click", () => {
+      const cmd = btn.dataset.cmd!;
+      const chain = editor.chain().focus();
+      switch (cmd) {
+        case "h2": chain.toggleHeading({ level: 2 }).run(); break;
+        case "h3": chain.toggleHeading({ level: 3 }).run(); break;
+        case "paragraph": chain.setParagraph().run(); break;
+        case "bold": chain.toggleBold().run(); break;
+        case "italic": chain.toggleItalic().run(); break;
+        case "strike": chain.toggleStrike().run(); break;
+        case "code": chain.toggleCode().run(); break;
+        case "bulletList": chain.toggleBulletList().run(); break;
+        case "orderedList": chain.toggleOrderedList().run(); break;
+        case "blockquote": chain.toggleBlockquote().run(); break;
+        case "codeBlock": chain.toggleCodeBlock().run(); break;
+        case "hr": chain.setHorizontalRule().run(); break;
+        case "link": {
+          const url = window.prompt("リンクURL", "https://");
+          if (url) chain.setLink({ href: url }).run();
+          else chain.unsetLink().run();
+          break;
+        }
+      }
+    });
+  }
+  for (const btn of root.querySelectorAll<HTMLButtonElement>(".we-btn[data-insert]")) {
+    btn.addEventListener("click", () => {
+      const ins = btn.dataset.insert!;
+      const chain = editor.chain().focus();
+      if (ins.startsWith("callout:")) {
+        const variant = ins.split(":")[1];
+        chain.insertContent({
+          type: "callout",
+          attrs: { variant, title: variant === "note" ? "覚書" : variant === "warning" ? "注意" : variant === "danger" ? "危険" : variant === "success" ? "成功" : null },
+          content: [{ type: "paragraph", content: [{ type: "text", text: "本文" }] }],
+        }).run();
+      } else if (ins === "toggle") {
+        chain.insertContent({
+          type: "toggle",
+          attrs: { summary: "クリックで開く" },
+          content: [{ type: "paragraph", content: [{ type: "text", text: "中身" }] }],
+        }).run();
+      } else if (ins.startsWith("chip:")) {
+        const variant = ins.split(":")[1];
+        chain.insertContent({
+          type: "statusChip",
+          attrs: { variant, label: variant === "ok" ? "○" : variant === "ng" ? "×" : "△" },
+        }).run();
+      }
+    });
+  }
+
+  const saveBtn = root.querySelector<HTMLButtonElement>("[data-action=save]")!;
+  saveBtn.addEventListener("click", async () => {
+    if (!form.reportValidity()) return;
+    const fd = new FormData(form);
+    const slug = String(fd.get("slug") ?? "").trim();
+    const title = String(fd.get("title") ?? "").trim();
+    const parentSlug = (fd.get("parentSlug") as string) || null;
+
+    saveBtn.disabled = true;
+    statusEl.textContent = "作成中…";
+    try {
+      const content = JSON.stringify(editor.getJSON());
+      const res = await fetch("/api/wiki/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, title, parentSlug, content }),
+      });
+      if (res.status === 409) {
+        statusEl.textContent = "slug が既に使われています";
+        return;
+      }
+      if (!res.ok) {
+        statusEl.textContent = `失敗: ${res.status} ${await res.text()}`;
+        return;
+      }
+      const data = await res.json();
+      window.location.assign(`/wiki/${data.slug}`);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+  }
+  .crumbs a { color: var(--text-secondary); }
+  .crumbs .sep { color: var(--text-muted); opacity: 0.6; }
+  .crumbs .current { color: var(--text-primary); }
+
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  h1 {
+    font-size: clamp(1.4rem, 3vw, 1.9rem);
+    letter-spacing: 0.1em;
+  }
+
+  .meta-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--border-base);
+    border-radius: 8px;
+    background: rgba(184, 149, 64, 0.03);
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .field .label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .field input,
+  .field select {
+    background: rgba(10, 5, 9, 0.5);
+    border: 1px solid var(--border-base);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.95rem;
+    padding: 0.5rem 0.7rem;
+  }
+  .field input:focus,
+  .field select:focus {
+    outline: none;
+    border-color: var(--color-gold-500);
+  }
+  .field .hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  /* 共通エディタ class（WikiEditor.astro と整合） */
+  .we-root {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .we-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--border-base);
+    border-radius: 8px;
+    background: var(--bg-surface);
+  }
+  .we-group {
+    display: flex;
+    gap: 0.2rem;
+    padding-right: 0.4rem;
+    border-right: 1px solid rgba(184, 149, 64, 0.15);
+  }
+  .we-group:last-of-type { border-right: none; }
+  .we-spacer { flex: 1; }
+  .we-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 0.25rem 0.55rem;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    min-width: 1.8rem;
+  }
+  .we-btn:hover {
+    background: rgba(184, 149, 64, 0.08);
+    color: var(--color-gold-100);
+  }
+  .we-btn-primary {
+    background: var(--color-gold-700);
+    color: var(--color-gold-100);
+    border-color: var(--color-gold-500);
+    padding: 0.35rem 1rem;
+  }
+  .we-btn-primary:hover {
+    background: var(--color-gold-500);
+    color: var(--color-ink-950);
+  }
+  .we-status {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .we-area {
+    border: 1px solid var(--border-base);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    min-height: 24rem;
+    background: rgba(10, 5, 9, 0.3);
+  }
+  .we-area :global(.ProseMirror) { outline: none; min-height: 22rem; }
+</style>
