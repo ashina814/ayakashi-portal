@@ -374,22 +374,37 @@ const SERVER_NAME = "幽世";
         }
       }
       setupCsrf();
+    </script>
 
-      // 音量トグル: ガワだけ。実音は M4d。状態を localStorage に記録。
+    <script>
+      // 音量トグル + 音響マネージャ (M4d)
+      import { createAudioManager } from "../lib/audio/audio-manager";
+
+      const audio = createAudioManager();
       const muteBtn = document.getElementById("mute-toggle") as HTMLButtonElement | null;
+
       function applyMuteState(muted: boolean) {
         if (!muteBtn) return;
         muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
         muteBtn.textContent = muted ? "◐" : "◑";
-        muteBtn.title = muted ? "音を入れる（実装は後段）" : "音を切る";
+        muteBtn.title = muted ? "音を入れる" : "音を切る";
       }
-      const stored = localStorage.getItem("ayakashi.muted");
-      applyMuteState(stored !== "false"); // 既定: ミュート
+      applyMuteState(audio.isMuted());
+
       muteBtn?.addEventListener("click", () => {
-        const cur = muteBtn.getAttribute("aria-pressed") === "true";
-        const next = !cur;
+        const next = !audio.isMuted();
+        audio.setMuted(next);
         applyMuteState(next);
-        localStorage.setItem("ayakashi.muted", String(next));
+      });
+
+      // 御札のホバー / クリックで SFX
+      const ofudaForSfx = document.getElementById("login-button");
+      ofudaForSfx?.addEventListener("pointerenter", () => audio.rustle(0.22));
+      ofudaForSfx?.addEventListener("focus", () => audio.rustle(0.22));
+      // クリック直前に音だけ先に鳴らす（form submit が止められるので safe）
+      ofudaForSfx?.addEventListener("pointerdown", () => {
+        audio.chime(0.4);
+        audio.rustle(0.45);
       });
     </script>
 

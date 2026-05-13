@@ -34,6 +34,7 @@ import {
   PointsMaterial,
   Quaternion,
   Scene,
+  ShaderMaterial,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -64,7 +65,7 @@ export interface ToriiScene {
   startPassThrough(): void;
 }
 
-/** ソフトな円形グラデーション texture（粒子・狐火の billboard 用） */
+/** ソフトな円形グラデーション texture（dust / halo 用） */
 function makeSoftSpriteTexture(): CanvasTexture {
   const size = 128;
   const canvas = document.createElement("canvas");
@@ -81,6 +82,86 @@ function makeSoftSpriteTexture(): CanvasTexture {
   ctx.fillRect(0, 0, size, size);
   return new CanvasTexture(canvas);
 }
+
+/**
+ * 狐火本体の炎テクスチャ。縦長の涙形で、内側は白く灼け、外周に向かって
+ * 青〜紺へ褪せる。多重楕円グラデーションで「火」感を出す。
+ */
+function makeFlameTexture(): CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, size, size);
+
+  // 縦長の楕円スケールで描画（点が縦に伸びる）
+  ctx.save();
+  ctx.translate(size / 2, size / 2 - size * 0.05);
+  ctx.scale(0.7, 1.05);
+
+  // ① 外周の青いオーラ
+  let g = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 0.5);
+  g.addColorStop(0, "rgba(120, 180, 230, 0.55)");
+  g.addColorStop(0.35, "rgba(90, 150, 220, 0.35)");
+  g.addColorStop(0.6, "rgba(60, 110, 180, 0.12)");
+  g.addColorStop(1, "rgba(0, 0, 30, 0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(-size, -size, size * 2, size * 2);
+
+  // ② 中間の青白
+  g = ctx.createRadialGradient(0, -size * 0.04, 0, 0, -size * 0.04, size * 0.32);
+  g.addColorStop(0, "rgba(220, 240, 255, 0.95)");
+  g.addColorStop(0.4, "rgba(170, 220, 255, 0.55)");
+  g.addColorStop(0.85, "rgba(140, 200, 250, 0.08)");
+  g.addColorStop(1, "rgba(140, 200, 250, 0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(-size, -size, size * 2, size * 2);
+
+  // ③ 中心の白熱
+  g = ctx.createRadialGradient(0, -size * 0.06, 0, 0, -size * 0.06, size * 0.16);
+  g.addColorStop(0, "rgba(255, 255, 255, 1)");
+  g.addColorStop(0.5, "rgba(255, 255, 255, 0.6)");
+  g.addColorStop(1, "rgba(255, 255, 255, 0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(-size, -size, size * 2, size * 2);
+
+  ctx.restore();
+  return new CanvasTexture(canvas);
+}
+
+const FOXFIRE_VERTEX = `
+attribute float aSize;
+attribute float aPhase;
+attribute vec3 aColor;
+uniform float uTime;
+uniform float uPixelRatio;
+varying float vFlicker;
+varying vec3 vColor;
+
+void main() {
+  vColor = aColor;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  // ゆらぎ: 速い揺らぎ + 遅いうねりを合成
+  float fast = sin(uTime * 6.0 + aPhase * 12.5664) * 0.5 + 0.5;
+  float slow = sin(uTime * 1.7 + aPhase * 7.2832) * 0.5 + 0.5;
+  vFlicker = 0.6 + 0.4 * mix(slow, fast, 0.6);
+  gl_PointSize = aSize * vFlicker * uPixelRatio * (200.0 / max(0.1, -mv.z));
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+const FOXFIRE_FRAGMENT = `
+uniform sampler2D uMap;
+varying float vFlicker;
+varying vec3 vColor;
+
+void main() {
+  vec4 tex = texture2D(uMap, gl_PointCoord);
+  // テクスチャ自体は半透明グラデ。ベース色を掛け、ゆらぎで明度を更に動かす
+  vec3 col = vColor * tex.rgb * (0.7 + 0.6 * vFlicker);
+  gl_FragColor = vec4(col, tex.a);
+}
+`;
 
 /** 鳥居 1 体分のジオメトリを単一 BufferGeometry に merge する */
 function buildToriiGeometry(): BufferGeometry {
@@ -277,27 +358,77 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   scene.add(rimLight);
 
   // ─── 狐火 ─────────────────────────────────────
-  const FOXFIRE_COUNT = 10;
+  // 二層構造: コア（ShaderMaterial + 縦長炎テクスチャ + ゆらぎ）と
+  // 周囲の青いハロー（PointsMaterial、よりソフト・大型）。
+  const FOXFIRE_COUNT = 12;
   const spriteTexture = makeSoftSpriteTexture();
+  const flameTexture = makeFlameTexture();
 
   const foxfireGeo = new BufferGeometry();
   const foxfirePositions = new Float32Array(FOXFIRE_COUNT * 3);
+  const foxfireSizes = new Float32Array(FOXFIRE_COUNT);
+  const foxfirePhases = new Float32Array(FOXFIRE_COUNT);
+  const foxfireColors = new Float32Array(FOXFIRE_COUNT * 3);
+  for (let i = 0; i < FOXFIRE_COUNT; i += 1) {
+    foxfireSizes[i] = 60 + Math.random() * 30;
+    foxfirePhases[i] = Math.random();
+    // 青〜青白の間で微妙に色を散らす（一部にわずかな緑味）
+    const hueShift = Math.random();
+    foxfireColors[i * 3 + 0] = 0.55 + hueShift * 0.2; // R
+    foxfireColors[i * 3 + 1] = 0.85 + hueShift * 0.1; // G
+    foxfireColors[i * 3 + 2] = 1.0; // B
+  }
   foxfireGeo.setAttribute(
     "position",
     new Float32BufferAttribute(foxfirePositions, 3),
   );
-  const foxfireMat = new PointsMaterial({
+  foxfireGeo.setAttribute(
+    "aSize",
+    new Float32BufferAttribute(foxfireSizes, 1),
+  );
+  foxfireGeo.setAttribute(
+    "aPhase",
+    new Float32BufferAttribute(foxfirePhases, 1),
+  );
+  foxfireGeo.setAttribute(
+    "aColor",
+    new Float32BufferAttribute(foxfireColors, 3),
+  );
+
+  const foxfireMat = new ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      uMap: { value: flameTexture },
+    },
+    vertexShader: FOXFIRE_VERTEX,
+    fragmentShader: FOXFIRE_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+  });
+  const foxfire = new Points(foxfireGeo, foxfireMat);
+  scene.add(foxfire);
+
+  // 周囲のハロー: PointsMaterial で大きく薄く
+  const foxfireHaloGeo = new BufferGeometry();
+  const haloPositions = new Float32Array(FOXFIRE_COUNT * 3);
+  foxfireHaloGeo.setAttribute(
+    "position",
+    new Float32BufferAttribute(haloPositions, 3),
+  );
+  const foxfireHaloMat = new PointsMaterial({
     map: spriteTexture,
     color: FOXFIRE_COLOR,
-    size: 0.6,
+    size: 2.6,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.22,
     blending: AdditiveBlending,
     depthWrite: false,
     sizeAttenuation: true,
   });
-  const foxfire = new Points(foxfireGeo, foxfireMat);
-  scene.add(foxfire);
+  const foxfireHalo = new Points(foxfireHaloGeo, foxfireHaloMat);
+  scene.add(foxfireHalo);
 
   interface FoxfireParam {
     centerX: number;
@@ -529,8 +660,10 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       const hoverLerp = ofudaHoverTarget > ofudaHoverFactor ? 0.06 : 0.04;
       ofudaHoverFactor += (ofudaHoverTarget - ofudaHoverFactor) * hoverLerp;
 
-      // 狐火
+      // 狐火（コアとハローを同じ位置に更新）
+      foxfireMat.uniforms.uTime.value = t;
       const posAttr = foxfire.geometry.getAttribute("position");
+      const haloAttr = foxfireHalo.geometry.getAttribute("position");
       for (let i = 0; i < FOXFIRE_COUNT; i += 1) {
         const p = foxfireParams[i];
         const phase = t * p.speed + p.phase;
@@ -548,8 +681,10 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
           z = nz + (ofudaWorldPos.z - nz) * ofudaHoverFactor;
         }
         posAttr.setXYZ(i, x, y, z);
+        haloAttr.setXYZ(i, x, y, z);
       }
       posAttr.needsUpdate = true;
+      haloAttr.needsUpdate = true;
 
       // 粒子
       const dustAttr = dust.geometry.getAttribute("position");
@@ -607,6 +742,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       renderer.dispose();
       renderer.domElement.remove();
       spriteTexture.dispose();
+      flameTexture.dispose();
       toriiGeo.dispose();
       toriiMat.dispose();
       scene.traverse((obj) => {
