@@ -56,6 +56,12 @@ export interface ToriiScene {
   dispose(): void;
   /** 御札ホバー中の演出を切替。最寄りの狐火が御札の3D投影点に寄ってくる */
   setOfudaHover(active: boolean): void;
+  /**
+   * 御札クリック → 鳥居をくぐる演出を開始。
+   * 紙吹雪を放出してカメラが Z 方向に 4s かけて前進する。
+   * 既に進行中なら何もしない。
+   */
+  startPassThrough(): void;
 }
 
 /** ソフトな円形グラデーション texture（粒子・狐火の billboard 用） */
@@ -348,6 +354,34 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   const dust = new Points(dustGeo, dustMat);
   scene.add(dust);
 
+  // ─── 紙吹雪 (passthrough 演出用、最初は非表示) ──
+  const CONFETTI_COUNT = 200;
+  const confettiGeo = new BufferGeometry();
+  const confettiPositions = new Float32Array(CONFETTI_COUNT * 3);
+  const confettiVelocities = new Float32Array(CONFETTI_COUNT * 3);
+  // 初期位置を御札の近くに集める（後で発射時に再初期化）
+  for (let i = 0; i < CONFETTI_COUNT; i += 1) {
+    confettiPositions[i * 3 + 0] = 0;
+    confettiPositions[i * 3 + 1] = 1.0;
+    confettiPositions[i * 3 + 2] = 5.5;
+  }
+  confettiGeo.setAttribute(
+    "position",
+    new Float32BufferAttribute(confettiPositions, 3),
+  );
+  const confettiMat = new PointsMaterial({
+    map: spriteTexture,
+    color: 0xebe2c9, // washi-100
+    size: 0.18,
+    transparent: true,
+    opacity: 0,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+  const confetti = new Points(confettiGeo, confettiMat);
+  scene.add(confetti);
+
   // ─── Bloom 後処理 ──────────────────────────────
   const renderPass = new RenderPass(scene, camera);
   const bloomPass = new UnrealBloomPass(
@@ -381,6 +415,36 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   // 引き寄せる狐火のインデックス（手前 2 体を採用）
   const ATTRACT_INDICES = [0, 1];
 
+  // ─── くぐる演出（passthrough）状態 ──────────────
+  // 詳細設計 §7.4:
+  //   0.0s クリック、紙吹雪が打ち上がる
+  //   0.4s カメラ前進開始、4s ease-out で z=-30 まで
+  // ホスト側（login.astro）が霧と白フラッシュ・遷移を担当する
+  let passing = false;
+  let passStartTime = 0;
+  const CAMERA_START_Z = 8;
+  const CAMERA_END_Z = -30;
+  const CAMERA_DURATION = 4.0; // 秒
+  const CONFETTI_START_DELAY = 0.0;
+  const CONFETTI_FADE_DURATION = 0.3;
+  const CONFETTI_LIFE = 4.0;
+
+  function initConfetti() {
+    const posAttr = confetti.geometry.getAttribute("position");
+    for (let i = 0; i < CONFETTI_COUNT; i += 1) {
+      // 御札周囲に集めて、放射状に飛ばす
+      posAttr.setXYZ(i, ofudaWorldPos.x, ofudaWorldPos.y, ofudaWorldPos.z);
+      // 上向き + 放射状 + 軽い前方成分
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 2;
+      const upward = 1.5 + Math.random() * 1.5;
+      confettiVelocities[i * 3 + 0] = Math.cos(angle) * speed;
+      confettiVelocities[i * 3 + 1] = upward;
+      confettiVelocities[i * 3 + 2] = Math.sin(angle) * speed * 0.6 - 0.5;
+    }
+    posAttr.needsUpdate = true;
+  }
+
   // ─── アニメーション ────────────────────────────
   let rafId = 0;
   let running = true;
@@ -402,17 +466,64 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       const mouseYaw = mouseSmooth.x * (1.5 * Math.PI / 180);
       const mousePitch = mouseSmooth.y * (0.8 * Math.PI / 180);
 
+      // passthrough 中はカメラ Z を前進させる（ease-out cubic）
+      let passProgress = 0;
+      if (passing) {
+        const elapsed = (performance.now() - passStartTime) / 1000;
+        const raw = Math.min(elapsed / CAMERA_DURATION, 1);
+        passProgress = 1 - Math.pow(1 - raw, 3); // ease-out cubic
+      }
+      const camZ =
+        CAMERA_START_Z + (CAMERA_END_Z - CAMERA_START_Z) * passProgress;
+
       camera.position.x = Math.sin(t * 0.15) * 0.05;
       camera.position.y = 1.5 + Math.sin(t * 0.4) * 0.04;
+      camera.position.z = camZ;
       camera.lookAt(
         Math.sin(breathYaw + mouseYaw) * 4,
         0.8 + Math.sin(breathPitch + mousePitch) * 4,
-        -10,
+        // 前進中は注視点も一緒に下げて、奥の鳥居を見据える
+        -10 + (CAMERA_END_Z - CAMERA_START_Z) * passProgress * 0.8,
       );
 
       // ミストの横流れ
       mistBand.position.x = Math.sin(t * 0.18) * 1.5;
       mistBandNear.position.x = Math.sin(t * 0.22 + 1.2) * 1.0;
+
+      // 紙吹雪のアップデート（passing 中のみ）
+      if (passing) {
+        const elapsed = (performance.now() - passStartTime) / 1000;
+        // フェードイン → 持続 → フェードアウト
+        let alpha = 0;
+        if (elapsed < CONFETTI_FADE_DURATION) {
+          alpha = elapsed / CONFETTI_FADE_DURATION;
+        } else if (elapsed < CONFETTI_LIFE - CONFETTI_FADE_DURATION) {
+          alpha = 1;
+        } else if (elapsed < CONFETTI_LIFE) {
+          alpha = 1 - (elapsed - (CONFETTI_LIFE - CONFETTI_FADE_DURATION)) /
+            CONFETTI_FADE_DURATION;
+        }
+        confettiMat.opacity = Math.max(0, alpha);
+
+        const cAttr = confetti.geometry.getAttribute("position");
+        const dt = 1 / 60;
+        const gravity = -3.5;
+        for (let i = 0; i < CONFETTI_COUNT; i += 1) {
+          // 速度に重力を加える
+          confettiVelocities[i * 3 + 1] += gravity * dt;
+          // 横方向の空気抵抗（ゆっくり減衰）
+          confettiVelocities[i * 3 + 0] *= 0.99;
+          confettiVelocities[i * 3 + 2] *= 0.99;
+
+          cAttr.setXYZ(
+            i,
+            cAttr.getX(i) + confettiVelocities[i * 3 + 0] * dt,
+            cAttr.getY(i) + confettiVelocities[i * 3 + 1] * dt,
+            cAttr.getZ(i) + confettiVelocities[i * 3 + 2] * dt,
+          );
+        }
+        cAttr.needsUpdate = true;
+      }
 
       // 御札ホバーの補間（活性 0.06、解除 0.04 で 400ms 前後）
       const hoverLerp = ofudaHoverTarget > ofudaHoverFactor ? 0.06 : 0.04;
@@ -479,6 +590,12 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   return {
     setOfudaHover(active: boolean) {
       ofudaHoverTarget = active ? 1 : 0;
+    },
+    startPassThrough() {
+      if (passing) return;
+      passing = true;
+      passStartTime = performance.now();
+      initConfetti();
     },
     dispose() {
       running = false;
