@@ -93,8 +93,9 @@ function makeSoftSpriteTexture(): CanvasTexture {
 }
 
 /**
- * 狐火本体の炎テクスチャ。縦長の涙形で、内側は白く灼け、外周に向かって
- * 青〜紺へ褪せる。多重楕円グラデーションで「火」感を出す。
+ * 狐火本体の炎テクスチャ。縦長の不規則な炎形を多層グラデで描く。
+ * 白＝色を乗せやすいよう中央は白基調にして、色は ShaderMaterial 側で
+ * 乗算する設計。
  */
 function makeFlameTexture(): CanvasTexture {
   const size = 256;
@@ -103,38 +104,59 @@ function makeFlameTexture(): CanvasTexture {
   const ctx = canvas.getContext("2d")!;
   ctx.clearRect(0, 0, size, size);
 
-  // 縦長の楕円スケールで描画（点が縦に伸びる）
   ctx.save();
-  ctx.translate(size / 2, size / 2 - size * 0.05);
-  ctx.scale(0.7, 1.05);
+  ctx.translate(size / 2, size / 2 - size * 0.04);
+  // 細長い炎の形状（高さ > 幅）
+  ctx.scale(0.45, 1.15);
 
-  // ① 外周の青いオーラ
-  let g = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 0.5);
-  g.addColorStop(0, "rgba(120, 180, 230, 0.55)");
-  g.addColorStop(0.35, "rgba(90, 150, 220, 0.35)");
-  g.addColorStop(0.6, "rgba(60, 110, 180, 0.12)");
-  g.addColorStop(1, "rgba(0, 0, 30, 0)");
+  // ① 外周の薄いオーラ（やや広め）
+  let g = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 0.46);
+  g.addColorStop(0, "rgba(255, 255, 255, 0.55)");
+  g.addColorStop(0.3, "rgba(255, 255, 255, 0.28)");
+  g.addColorStop(0.6, "rgba(255, 255, 255, 0.08)");
+  g.addColorStop(1, "rgba(255, 255, 255, 0)");
   ctx.fillStyle = g;
   ctx.fillRect(-size, -size, size * 2, size * 2);
 
-  // ② 中間の青白
-  g = ctx.createRadialGradient(0, -size * 0.04, 0, 0, -size * 0.04, size * 0.32);
-  g.addColorStop(0, "rgba(220, 240, 255, 0.95)");
-  g.addColorStop(0.4, "rgba(170, 220, 255, 0.55)");
-  g.addColorStop(0.85, "rgba(140, 200, 250, 0.08)");
-  g.addColorStop(1, "rgba(140, 200, 250, 0)");
+  // ② 中段の本体（少し上にオフセット = 火の先端が伸びる雰囲気）
+  g = ctx.createRadialGradient(0, -size * 0.08, 0, 0, -size * 0.06, size * 0.25);
+  g.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+  g.addColorStop(0.4, "rgba(255, 255, 255, 0.55)");
+  g.addColorStop(0.85, "rgba(255, 255, 255, 0.08)");
+  g.addColorStop(1, "rgba(255, 255, 255, 0)");
   ctx.fillStyle = g;
   ctx.fillRect(-size, -size, size * 2, size * 2);
 
-  // ③ 中心の白熱
-  g = ctx.createRadialGradient(0, -size * 0.06, 0, 0, -size * 0.06, size * 0.16);
+  // ③ 中心の白熱（小さく強く）
+  g = ctx.createRadialGradient(0, -size * 0.08, 0, 0, -size * 0.08, size * 0.1);
   g.addColorStop(0, "rgba(255, 255, 255, 1)");
-  g.addColorStop(0.5, "rgba(255, 255, 255, 0.6)");
+  g.addColorStop(0.5, "rgba(255, 255, 255, 0.7)");
   g.addColorStop(1, "rgba(255, 255, 255, 0)");
   ctx.fillStyle = g;
   ctx.fillRect(-size, -size, size * 2, size * 2);
 
   ctx.restore();
+  return new CanvasTexture(canvas);
+}
+
+/**
+ * 火の粉用テクスチャ。本体より小さい鋭めの円グラデ。
+ * チリチリした粒感のために本体とは別エミッタにする。
+ */
+function makeEmberTexture(): CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const cx = size / 2;
+  const cy = size / 2;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cx);
+  grad.addColorStop(0, "rgba(255, 255, 255, 1)");
+  grad.addColorStop(0.25, "rgba(255, 255, 255, 0.7)");
+  grad.addColorStop(0.6, "rgba(255, 255, 255, 0.15)");
+  grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
   return new CanvasTexture(canvas);
 }
 
@@ -430,25 +452,44 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   scene.add(rimLight);
 
   // ─── 狐火 ─────────────────────────────────────
-  // 二層構造: コア（ShaderMaterial + 縦長炎テクスチャ + ゆらぎ）と
-  // 周囲の青いハロー（PointsMaterial、よりソフト・大型）。
+  // 三層構造:
+  //   ① コア (cores)   : 縦長の炎本体。ShaderMaterial + 速い flicker
+  //   ② 火の粉 (embers) : コア周囲に飛び散る小さな粒。チリチリ感の主因
+  //   ③ ハロー (halos)  : コア周囲の柔らかい光。距離感と滲み
+  // 色は 青白 / 金 / 朱 を混ぜて「夜の社の火」感を出す。
   const FOXFIRE_COUNT = quality.foxfireCount;
+  const EMBER_PER_CORE = quality.tier === "low" ? 0 : quality.tier === "mobile" ? 4 : 6;
+  const EMBER_COUNT = FOXFIRE_COUNT * EMBER_PER_CORE;
   const spriteTexture = makeSoftSpriteTexture();
   const flameTexture = makeFlameTexture();
+  const emberTexture = makeEmberTexture();
 
+  // 色パレット: 青白 40% / 金 35% / 朱 25%
+  const COLOR_PALETTE: [number, number, number][] = [
+    [0.72, 0.9, 1.0],   // 青白 (mist-glow 寄り)
+    [0.72, 0.9, 1.0],   // 青白
+    [1.0, 0.82, 0.5],   // 金 (gold-300 寄り)
+    [1.0, 0.78, 0.42],  // 金やや暖色
+    [1.0, 0.56, 0.36],  // 朱 (vermilion-300 寄り)
+  ];
+  function pickPaletteColor(rand: number): [number, number, number] {
+    return COLOR_PALETTE[Math.floor(rand * COLOR_PALETTE.length)];
+  }
+
+  // ─ ① コア ─────────
   const foxfireGeo = new BufferGeometry();
   const foxfirePositions = new Float32Array(FOXFIRE_COUNT * 3);
   const foxfireSizes = new Float32Array(FOXFIRE_COUNT);
   const foxfirePhases = new Float32Array(FOXFIRE_COUNT);
   const foxfireColors = new Float32Array(FOXFIRE_COUNT * 3);
   for (let i = 0; i < FOXFIRE_COUNT; i += 1) {
-    foxfireSizes[i] = 60 + Math.random() * 30;
+    // サイズも幅広く: 大きい "近い火" と 小さい "遠い火" を混在させてメリハリ
+    foxfireSizes[i] = 32 + Math.random() * 40;
     foxfirePhases[i] = Math.random();
-    // 青〜青白の間で微妙に色を散らす（一部にわずかな緑味）
-    const hueShift = Math.random();
-    foxfireColors[i * 3 + 0] = 0.55 + hueShift * 0.2; // R
-    foxfireColors[i * 3 + 1] = 0.85 + hueShift * 0.1; // G
-    foxfireColors[i * 3 + 2] = 1.0; // B
+    const [r, g, b] = pickPaletteColor(Math.random());
+    foxfireColors[i * 3 + 0] = r;
+    foxfireColors[i * 3 + 1] = g;
+    foxfireColors[i * 3 + 2] = b;
   }
   foxfireGeo.setAttribute(
     "position",
@@ -482,19 +523,102 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   const foxfire = new Points(foxfireGeo, foxfireMat);
   scene.add(foxfire);
 
-  // 周囲のハロー: PointsMaterial で大きく薄く
+  // ─ ② 火の粉 (embers) ─────────
+  // 同じシェーダを使い、テクスチャだけ差し替え。サイズは小さく、phase に
+  // 大きなばらつきを与えて チリチリ させる。
+  const emberGeo = new BufferGeometry();
+  const emberPositions = new Float32Array(EMBER_COUNT * 3);
+  const emberSizes = new Float32Array(EMBER_COUNT);
+  const emberPhases = new Float32Array(EMBER_COUNT);
+  const emberColors = new Float32Array(EMBER_COUNT * 3);
+  for (let i = 0; i < EMBER_COUNT; i += 1) {
+    emberSizes[i] = 4 + Math.random() * 10;
+    emberPhases[i] = Math.random();
+    const parentIdx = Math.floor(i / EMBER_PER_CORE);
+    // 親コアの色を継承しつつ、わずかにジッタ
+    const pr = foxfireColors[parentIdx * 3 + 0];
+    const pg = foxfireColors[parentIdx * 3 + 1];
+    const pb = foxfireColors[parentIdx * 3 + 2];
+    emberColors[i * 3 + 0] = Math.min(1, pr + (Math.random() - 0.5) * 0.15);
+    emberColors[i * 3 + 1] = Math.min(1, pg + (Math.random() - 0.5) * 0.15);
+    emberColors[i * 3 + 2] = Math.min(1, pb + (Math.random() - 0.5) * 0.15);
+  }
+  emberGeo.setAttribute(
+    "position",
+    new Float32BufferAttribute(emberPositions, 3),
+  );
+  emberGeo.setAttribute(
+    "aSize",
+    new Float32BufferAttribute(emberSizes, 1),
+  );
+  emberGeo.setAttribute(
+    "aPhase",
+    new Float32BufferAttribute(emberPhases, 1),
+  );
+  emberGeo.setAttribute(
+    "aColor",
+    new Float32BufferAttribute(emberColors, 3),
+  );
+
+  const emberMat = new ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      uMap: { value: emberTexture },
+    },
+    vertexShader: FOXFIRE_VERTEX,
+    fragmentShader: FOXFIRE_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+  });
+  const ember = new Points(emberGeo, emberMat);
+  scene.add(ember);
+
+  // 火の粉ごとの軌道パラメータ（親コアからの局所軌道）
+  interface EmberParam {
+    parentIdx: number;
+    localRadius: number;
+    localSpeed: number;
+    localPhase: number;
+    yOffset: number;
+  }
+  const emberParams: EmberParam[] = Array.from(
+    { length: EMBER_COUNT },
+    (_, i) => ({
+      parentIdx: Math.floor(i / EMBER_PER_CORE),
+      localRadius: 0.12 + Math.random() * 0.35,
+      localSpeed: 0.7 + Math.random() * 1.6, // コアより速く
+      localPhase: Math.random() * Math.PI * 2,
+      yOffset: (Math.random() - 0.3) * 0.6,
+    }),
+  );
+
+  // ─ ③ ハロー ─────────
+  // コアの色を継承しないと「青ハローと朱コア」がぶつかるので、ハローも
+  // 親コアの色を引き継いだ vertexColors にして陰気な統一感を出す。
   const foxfireHaloGeo = new BufferGeometry();
   const haloPositions = new Float32Array(FOXFIRE_COUNT * 3);
+  const haloColors = new Float32Array(FOXFIRE_COUNT * 3);
+  for (let i = 0; i < FOXFIRE_COUNT; i += 1) {
+    haloColors[i * 3 + 0] = foxfireColors[i * 3 + 0];
+    haloColors[i * 3 + 1] = foxfireColors[i * 3 + 1];
+    haloColors[i * 3 + 2] = foxfireColors[i * 3 + 2];
+  }
   foxfireHaloGeo.setAttribute(
     "position",
     new Float32BufferAttribute(haloPositions, 3),
   );
+  foxfireHaloGeo.setAttribute(
+    "color",
+    new Float32BufferAttribute(haloColors, 3),
+  );
   const foxfireHaloMat = new PointsMaterial({
     map: spriteTexture,
-    color: FOXFIRE_COLOR,
-    size: 2.6,
+    vertexColors: true,
+    size: 2.2,
     transparent: true,
-    opacity: 0.22,
+    opacity: 0.18,
     blending: AdditiveBlending,
     depthWrite: false,
     sizeAttenuation: true,
@@ -515,18 +639,22 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   const foxfireParams: FoxfireParam[] = Array.from(
     { length: FOXFIRE_COUNT },
     (_, i) => {
-      // 鳥居列の左右に分散させて、奥行き方向にも散らす
       const side = i % 2 === 0 ? -1 : 1;
-      const depthIndex = Math.floor(i / 2);
+      // 深さを均一でなく不均一に配置（メリハリ）。手前 -1 から奥 -20 まで散らす。
+      const depthBucket = i / Math.max(1, FOXFIRE_COUNT - 1);
+      // depthBucket を非線形に変換して近距離側に多めに寄せる
+      const depthNorm = Math.pow(depthBucket, 0.85);
+      const centerZ = -1.2 - depthNorm * 18 + (Math.random() - 0.5) * 1.0;
       return {
-        centerX: side * (1.8 + Math.random() * 0.6),
-        centerZ: -3 - depthIndex * 4.5,
-        baseY: 0.5 + Math.random() * 1.2,
-        radiusX: 0.4 + Math.random() * 0.4,
-        radiusZ: 0.3 + Math.random() * 0.3,
-        speed: 0.2 + Math.random() * 0.25,
+        centerX:
+          side * (1.6 + Math.random() * 1.4) + (Math.random() - 0.5) * 0.6,
+        centerZ,
+        baseY: 0.4 + Math.random() * 1.5,
+        radiusX: 0.25 + Math.random() * 0.5,
+        radiusZ: 0.2 + Math.random() * 0.4,
+        speed: 0.22 + Math.random() * 0.35,
         phase: Math.random() * Math.PI * 2,
-        yAmp: 0.25 + Math.random() * 0.35,
+        yAmp: 0.2 + Math.random() * 0.45,
       };
     },
   );
@@ -790,10 +918,15 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       const hoverLerp = ofudaHoverTarget > ofudaHoverFactor ? 0.06 : 0.04;
       ofudaHoverFactor += (ofudaHoverTarget - ofudaHoverFactor) * hoverLerp;
 
-      // 狐火（コアとハローを同じ位置に更新）
+      // 狐火（コア / 火の粉 / ハローを同期更新）
       foxfireMat.uniforms.uTime.value = t;
+      emberMat.uniforms.uTime.value = t;
+
       const posAttr = foxfire.geometry.getAttribute("position");
       const haloAttr = foxfireHalo.geometry.getAttribute("position");
+
+      // コア位置を計算しつつ親位置として配列にキャッシュ
+      const corePos: { x: number; y: number; z: number }[] = [];
       for (let i = 0; i < FOXFIRE_COUNT; i += 1) {
         const p = foxfireParams[i];
         const phase = t * p.speed + p.phase;
@@ -805,16 +938,31 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
         let y = ny;
         let z = nz;
         if (ATTRACT_INDICES.includes(i) && ofudaHoverFactor > 0.001) {
-          // ホバー中は御札の位置に引き寄せる（lerp）
           x = nx + (ofudaWorldPos.x - nx) * ofudaHoverFactor;
           y = ny + (ofudaWorldPos.y - ny) * ofudaHoverFactor;
           z = nz + (ofudaWorldPos.z - nz) * ofudaHoverFactor;
         }
         posAttr.setXYZ(i, x, y, z);
         haloAttr.setXYZ(i, x, y, z);
+        corePos.push({ x, y, z });
       }
       posAttr.needsUpdate = true;
       haloAttr.needsUpdate = true;
+
+      // 火の粉: 親コアの位置に局所軌道で乗せる
+      if (EMBER_COUNT > 0) {
+        const emberAttr = ember.geometry.getAttribute("position");
+        for (let i = 0; i < EMBER_COUNT; i += 1) {
+          const ep = emberParams[i];
+          const parent = corePos[ep.parentIdx];
+          const lp = t * ep.localSpeed + ep.localPhase;
+          const ox = Math.cos(lp) * ep.localRadius;
+          const oz = Math.sin(lp * 0.85) * ep.localRadius * 0.7;
+          const oy = ep.yOffset + Math.sin(lp * 1.3) * 0.15;
+          emberAttr.setXYZ(i, parent.x + ox, parent.y + oy, parent.z + oz);
+        }
+        emberAttr.needsUpdate = true;
+      }
 
       // 粒子
       const dustAttr = dust.geometry.getAttribute("position");
@@ -873,6 +1021,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       renderer.domElement.remove();
       spriteTexture.dispose();
       flameTexture.dispose();
+      emberTexture.dispose();
       toriiGeo.dispose();
       toriiMat.dispose();
       scene.traverse((obj) => {
