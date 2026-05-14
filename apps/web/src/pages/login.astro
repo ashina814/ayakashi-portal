@@ -17,6 +17,24 @@ if (Astro.locals.session) {
 }
 
 const SERVER_NAME = "幽世";
+
+// 和暦の今日: 「令和七年 卯月 廿三日」風
+const today = new Date();
+const wareki = (() => {
+  try {
+    const era = new Intl.DateTimeFormat("ja-JP-u-ca-japanese", {
+      era: "long",
+      year: "numeric",
+    }).format(today);
+    const mmdd = new Intl.DateTimeFormat("ja-JP", {
+      month: "long",
+      day: "numeric",
+    }).format(today);
+    return `${era} ${mmdd}`;
+  } catch {
+    return "";
+  }
+})();
 ---
 
 <html lang="ja">
@@ -198,11 +216,28 @@ const SERVER_NAME = "幽世";
         user-select: none;
       }
 
-      /* 下段: 音量トグル */
+      /* 下段: 和暦（左）+ 音量トグル（右） */
       .bottom {
         display: flex;
-        justify-content: flex-end;
+        justify-content: space-between;
         align-items: end;
+      }
+      .wareki {
+        font-family: "Yuji Syuku", serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.18em;
+        color: rgba(245, 231, 196, 0.4);
+        text-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+        user-select: none;
+        opacity: 0;
+        animation: warekiFadeIn 1.8s ease-out 3.6s forwards;
+      }
+      @keyframes warekiFadeIn {
+        from { opacity: 0; transform: translateY(0.3rem); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .wareki { opacity: 0.6; animation: none; }
       }
       .mute-toggle {
         width: 2.8rem;
@@ -344,6 +379,7 @@ const SERVER_NAME = "幽世";
       </div>
 
       <div class="bottom">
+        <span class="wareki" aria-hidden="true">{wareki}</span>
         <button
           type="button"
           class="mute-toggle"

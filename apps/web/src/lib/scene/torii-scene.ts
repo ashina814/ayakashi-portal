@@ -127,27 +127,30 @@ float fbm(vec2 p) {
 const PAPER_FRAGMENT = `
 ${NOISE_GLSL}
 uniform float uTime;
+uniform float uInkSurge; // 0..1 マイクロイベント: 一瞬光が差す
 uniform vec2 uResolution;
 varying vec2 vUv;
 
 void main() {
   vec2 uv = vUv;
-  // アスペクトに合わせて補正したノイズ空間
   vec2 np = uv * vec2(uResolution.x / uResolution.y, 1.0);
 
-  // 大きな warm tint variation（低周波）
   float warm = fbm(np * 1.5);
-  // 細かい紙繊維（高周波）
   float grain = fbm(np * 18.0);
 
-  vec3 base = vec3(0.039, 0.020, 0.035);     // ink-950
-  vec3 warmTint = vec3(0.05, 0.034, 0.022);  // 茶寄りの暖色
+  vec3 base = vec3(0.039, 0.020, 0.035);
+  vec3 warmTint = vec3(0.05, 0.034, 0.022);
   vec3 col = base + warmTint * (warm * 0.6);
   col += vec3(grain * 0.025);
 
-  // 中央をほんのり明るく（後で vignette が掛かるので相殺される）
+  // 中央を僅かに明るく
   float r = length(uv - 0.5);
   col += vec3(0.018, 0.012, 0.007) * (1.0 - smoothstep(0.0, 0.7, r));
+
+  // マイクロイベント: 紙が一瞬うっすら明るくなる（光が差したような余韻）
+  // 低周波ノイズで斑模様にしてベタっと光らないように
+  float surgePattern = fbm(np * 2.0 + uTime * 0.05);
+  col += vec3(0.06, 0.045, 0.025) * uInkSurge * surgePattern;
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -460,6 +463,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     fragmentShader: PAPER_FRAGMENT,
     uniforms: {
       uTime: { value: 0 },
+      uInkSurge: { value: 0 },
       uResolution: { value: initialResolution.clone() },
     },
   });
@@ -625,6 +629,20 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   let confettiActive = false;
   let confettiStartTime = 0;
 
+  // ── マイクロイベント（PR 4） ────
+  // idle 中に見続けてもらうための小さな「気配」
+  //   30s ごと: 結界が深呼吸（一拍だけ強く脈動）
+  //   60s ごと: 紙が一瞬うっすら明るむ（光が差したような余韻、1.8s）
+  //   90s ごと: 金粉ミニ爆発
+  let breathSpike = 0; // 0..1 短時間で 1 → 0 に減衰
+  let inkSurgeStartAt = 0; // 0 = 非アクティブ、他 = 開始時刻 (ms)
+  const sceneStartTime = performance.now();
+  let lastBreathSpikeAt = sceneStartTime;
+  let lastInkSurgeAt = sceneStartTime;
+  let lastConfettiBurstAt = sceneStartTime;
+  // 開始 5s は静かにしておく（reveal が落ち着くまで）
+  const MICRO_EVENT_GRACE_MS = 5000;
+
   // ─ アニメーション ─────────────────────────
   let rafId = 0;
   let running = true;
@@ -650,9 +668,50 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     }
 
     if (!prefersReducedMotion) {
-      // 結界の脈動強度を補間
-      const lerp = breathTarget > breathSmooth ? 0.06 : 0.04;
-      breathSmooth += (breathTarget - breathSmooth) * lerp;
+      // マイクロイベント スケジューラ
+      const now = performance.now();
+      const sceneAge = now - sceneStartTime;
+      if (sceneAge > MICRO_EVENT_GRACE_MS) {
+        // 30s ごと: 結界の深呼吸
+        if (now - lastBreathSpikeAt > 30000) {
+          lastBreathSpikeAt = now;
+          breathSpike = 1;
+        }
+        // 60s ごと: 紙のうっすら明るむ
+        if (now - lastInkSurgeAt > 60000) {
+          lastInkSurgeAt = now;
+          inkSurgeStartAt = now;
+        }
+        // 90s ごと: 金粉ミニ爆発
+        if (now - lastConfettiBurstAt > 90000) {
+          lastConfettiBurstAt = now;
+          if (!confettiActive) {
+            confettiActive = true;
+            confettiStartTime = now;
+          }
+        }
+      }
+
+      // ink surge: アクティブな間だけ 0→1→0
+      if (inkSurgeStartAt > 0) {
+        const elapsed = (now - inkSurgeStartAt) / 1000;
+        let surge = 0;
+        if (elapsed < 0.4) surge = elapsed / 0.4;
+        else if (elapsed < 1.8) surge = 1 - (elapsed - 0.4) / 1.4;
+        else {
+          inkSurgeStartAt = 0;
+          surge = 0;
+        }
+        paperMat.uniforms.uInkSurge.value = Math.max(0, surge);
+      }
+
+      // breath spike: ゆっくり減衰
+      breathSpike = Math.max(0, breathSpike - 0.012);
+
+      // 結界の脈動強度を補間（hover + spike 合成）
+      const breathSource = Math.max(breathTarget, breathSpike);
+      const lerp = breathSource > breathSmooth ? 0.06 : 0.04;
+      breathSmooth += (breathSource - breathSmooth) * lerp;
       barrierMat.uniforms.uBreath.value = breathSmooth;
 
       // 金粉の上昇（画面外に出たら下から再投入）
