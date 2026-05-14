@@ -100,6 +100,12 @@ const SERVER_NAME = "幽世";
         opacity: 0;
         filter: blur(10px);
         animation: serverFadeIn 2.4s ease-out 0.8s forwards;
+        /* スクリーンリーダー用に保持しつつ、3D 描画があれば視覚上は隠す */
+        transition: opacity 0.6s ease-out;
+      }
+      /* 3D シーンが起動したら HTML 版は視覚的に隠す（a11y のため要素は残す） */
+      body.scene-loaded .server-name {
+        opacity: 0 !important;
       }
       .skip {
         grid-column: 2;
@@ -482,6 +488,8 @@ const SERVER_NAME = "幽世";
       if (sceneRoot && !reducedMotion) {
         import("../lib/scene/torii-scene").then(({ initToriiScene }) => {
           const scene = initToriiScene(sceneRoot);
+          // HTML 「幽世」 を視覚的に隠す（3D 版に切替）
+          document.body.classList.add("scene-loaded");
           if (ofuda) {
             ofuda.addEventListener("pointerenter", () =>
               scene.setOfudaHover(true),
