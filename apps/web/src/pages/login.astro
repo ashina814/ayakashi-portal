@@ -421,7 +421,9 @@ const SERVER_NAME = "幽世";
     </script>
 
     <script>
-      // Three.js シーンは reduced-motion 以外でロード
+      // Three.js シーン + GSAP タイムラインで くぐる演出を統合
+      import { gsap } from "gsap";
+
       const reducedMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
@@ -430,25 +432,51 @@ const SERVER_NAME = "幽世";
       const cinematic = document.getElementById("cinematic");
       const ofudaForm = ofuda?.closest("form") as HTMLFormElement | null;
 
-      function runPassthrough(scene: { startPassThrough: () => void } | null) {
+      interface SceneAPI {
+        setOfudaHover: (a: boolean) => void;
+        setPassProgress: (p: number) => void;
+        triggerConfetti: () => void;
+      }
+
+      function runPassthrough(scene: SceneAPI | null) {
         if (!ofudaForm) return;
         if (document.body.classList.contains("passing")) return;
         document.body.classList.add("passing");
-        scene?.startPassThrough();
         cinematic?.classList.add("active");
 
-        // 1.0s 後に霧をせり上がらせる、3.5s で白フラッシュ、4.0s で遷移（submit）
-        const reduced = reducedMotion;
-        const fogUp = reduced ? 0 : 1000;
-        const flashOn = reduced ? 0 : 3500;
-        const submitAt = reduced ? 0 : 4000;
-        if (!reduced) {
-          window.setTimeout(() => cinematic?.classList.add("fog-up"), fogUp);
-          window.setTimeout(() => cinematic?.classList.add("flash-on"), flashOn);
-        } else {
-          cinematic?.classList.add("fog-up", "flash-on");
+        if (reducedMotion) {
+          // 演出スキップ: すぐ submit
+          ofudaForm.submit();
+          return;
         }
-        window.setTimeout(() => ofudaForm.submit(), submitAt);
+
+        // 紙吹雪は即発射
+        scene?.triggerConfetti();
+
+        // GSAP タイムラインで以下を同期:
+        //   0.4s〜4.4s : カメラ Z を power3.out で前進
+        //   1.0s       : 霧せり上がり開始
+        //   3.5s       : 白フラッシュ開始
+        //   4.0s       : OAuth へ submit
+        const cameraState = { progress: 0 };
+        const tl = gsap.timeline({
+          defaults: { ease: "power3.out" },
+        });
+
+        if (scene) {
+          tl.to(
+            cameraState,
+            {
+              progress: 1,
+              duration: 4.0,
+              onUpdate: () => scene.setPassProgress(cameraState.progress),
+            },
+            0.4,
+          );
+        }
+        tl.call(() => cinematic?.classList.add("fog-up"), undefined, 1.0);
+        tl.call(() => cinematic?.classList.add("flash-on"), undefined, 3.5);
+        tl.call(() => ofudaForm.submit(), undefined, 4.0);
       }
 
       if (sceneRoot && !reducedMotion) {
@@ -470,7 +498,6 @@ const SERVER_NAME = "幽世";
           });
         });
       } else {
-        // reduced-motion または scene 未ロード: 通常 submit
         ofudaForm?.addEventListener("submit", (e) => {
           e.preventDefault();
           runPassthrough(null);
