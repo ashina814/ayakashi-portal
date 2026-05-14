@@ -67,11 +67,12 @@ export interface ToriiScene {
   /** 御札ホバー中の演出を切替。最寄りの狐火が御札の3D投影点に寄ってくる */
   setOfudaHover(active: boolean): void;
   /**
-   * 御札クリック → 鳥居をくぐる演出を開始。
-   * 紙吹雪を放出してカメラが Z 方向に 4s かけて前進する。
-   * 既に進行中なら何もしない。
+   * くぐる演出: カメラ Z 前進の進行度を 0..1 で外部から指定する。
+   * GSAP のタイムラインから onUpdate で逐次呼び出す想定。
    */
-  startPassThrough(): void;
+  setPassProgress(progress: number): void;
+  /** 紙吹雪バーストを発射（startPassThrough 開始時の 1 回だけ呼ぶ） */
+  triggerConfetti(): void;
 }
 
 /** ソフトな円形グラデーション texture（dust / halo 用） */
@@ -805,16 +806,13 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   const ATTRACT_INDICES = [0, 1];
 
   // ─── くぐる演出（passthrough）状態 ──────────────
-  // 詳細設計 §7.4:
-  //   0.0s クリック、紙吹雪が打ち上がる
-  //   0.4s カメラ前進開始、4s ease-out で z=-30 まで
-  // ホスト側（login.astro）が霧と白フラッシュ・遷移を担当する
-  let passing = false;
-  let passStartTime = 0;
+  // GSAP のタイムラインで外部から setPassProgress(0..1) を呼んでカメラ Z を制御する。
+  // 紙吹雪は triggerConfetti() で発射、内部タイマーでアルファをフェードする。
+  let passProgress = 0; // 0..1、外部から書き換える
+  let confettiActive = false;
+  let confettiStartTime = 0;
   const CAMERA_START_Z = 8;
   const CAMERA_END_Z = -30;
-  const CAMERA_DURATION = 4.0; // 秒
-  const CONFETTI_START_DELAY = 0.0;
   const CONFETTI_FADE_DURATION = 0.3;
   const CONFETTI_LIFE = 4.0;
 
@@ -855,13 +853,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       const mouseYaw = mouseSmooth.x * (1.5 * Math.PI / 180);
       const mousePitch = mouseSmooth.y * (0.8 * Math.PI / 180);
 
-      // passthrough 中はカメラ Z を前進させる（ease-out cubic）
-      let passProgress = 0;
-      if (passing) {
-        const elapsed = (performance.now() - passStartTime) / 1000;
-        const raw = Math.min(elapsed / CAMERA_DURATION, 1);
-        passProgress = 1 - Math.pow(1 - raw, 3); // ease-out cubic
-      }
+      // passthrough 中はカメラ Z を前進させる（progress は GSAP 側で easing 済み）
       const camZ =
         CAMERA_START_Z + (CAMERA_END_Z - CAMERA_START_Z) * passProgress;
 
@@ -879,9 +871,13 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       mistBand.position.x = Math.sin(t * 0.18) * 1.5;
       mistBandNear.position.x = Math.sin(t * 0.22 + 1.2) * 1.0;
 
-      // 紙吹雪のアップデート（passing 中のみ）
-      if (passing) {
-        const elapsed = (performance.now() - passStartTime) / 1000;
+      // 紙吹雪のアップデート（confetti 発射中のみ）
+      if (confettiActive) {
+        const elapsed = (performance.now() - confettiStartTime) / 1000;
+        if (elapsed > CONFETTI_LIFE) {
+          confettiActive = false;
+          confettiMat.opacity = 0;
+        }
         // フェードイン → 持続 → フェードアウト
         let alpha = 0;
         if (elapsed < CONFETTI_FADE_DURATION) {
@@ -1003,10 +999,13 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     setOfudaHover(active: boolean) {
       ofudaHoverTarget = active ? 1 : 0;
     },
-    startPassThrough() {
-      if (passing) return;
-      passing = true;
-      passStartTime = performance.now();
+    setPassProgress(p: number) {
+      passProgress = Math.max(0, Math.min(1, p));
+    },
+    triggerConfetti() {
+      if (confettiActive) return;
+      confettiActive = true;
+      confettiStartTime = performance.now();
       initConfetti();
     },
     dispose() {
