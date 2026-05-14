@@ -74,28 +74,45 @@ void main() {
 `;
 
 /**
- * 共有 GLSL 断片: ハッシュベースの value noise + FBM。
- * PR 3 で simplex-noise に差し替える前の暫定実装。
+ * 共有 GLSL 断片: Stefan Gustavson の 2D simplex noise + FBM。
+ *
+ * value noise から差し替え。simplex の方が等方的で、グラデーションが
+ * 自然に出るので「滲み」「火」「霧」あらゆる用途で質感が上がる。
  */
 const NOISE_GLSL = `
-float hash21(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
-float vnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+// 2D Simplex noise — public domain implementation (Stefan Gustavson)
+vec3 permute_(vec3 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }
+float snoise(vec2 v) {
+  const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                     -0.577350269189626, 0.024390243902439);
+  vec2 i  = floor(v + dot(v, C.yy));
+  vec2 x0 = v -   i + dot(i, C.xx);
+  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+  i = mod(i, 289.0);
+  vec3 p = permute_(permute_(i.y + vec3(0.0, i1.y, 1.0))
+        + i.x + vec3(0.0, i1.x, 1.0));
+  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy),
+                          dot(x12.zw, x12.zw)), 0.0);
+  m = m * m;
+  m = m * m;
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
+  vec3 g;
+  g.x  = a0.x  * x0.x  + h.x  * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  // 0..1 範囲に変換
+  return 0.5 + 0.5 * (130.0 * dot(m, g));
 }
 float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
   for (int i = 0; i < 4; i++) {
-    v += a * vnoise(p);
+    v += a * snoise(p);
     p *= 2.07;
     a *= 0.5;
   }
@@ -257,51 +274,73 @@ void main() {
 `;
 
 /**
- * 結界: 同心 3 リング。脈動と色相循環は後段（PR 3）で本格化。
- * 今は基本的な脈動と break 展開のみ。
+ * 結界（PR 3 本格版）:
+ *   - 4 リングに増やし、それぞれ位相をずらして「呼吸が外に伝播」する感じ
+ *   - simplex FBM でリング線が微振動（角度ベースで等方的に揺らぐ）
+ *   - 朱 ⇄ 金 の色相が 30s 周期でゆっくり循環
+ *   - くぐる演出 (uPassProgress) では蹴り出し風に加速膨張
  */
 const BARRIER_FRAGMENT = `
 ${NOISE_GLSL}
 uniform float uTime;
-uniform float uBreath;       // 0..1 御札ホバーでの強度
-uniform float uPassProgress; // 0..1 くぐる演出（外側へ膨張）
+uniform float uBreath;       // 0..1 御札ホバー強度
+uniform float uPassProgress; // 0..1 くぐる演出
 uniform vec2 uResolution;
 varying vec2 vUv;
+
+// 朱 vermilion-500 / 金 gold-500
+const vec3 COLOR_VERMILION = vec3(0.756, 0.157, 0.227);
+const vec3 COLOR_GOLD      = vec3(0.96, 0.78, 0.27);
 
 void main() {
   vec2 p = vUv - 0.5;
   p.x *= uResolution.x / uResolution.y;
 
-  // 結界中心を鳥居中心からズラす（鳥居の門 = 笠木の少し下）
+  // 結界中心: 鳥居の門の中央付近（笠木のすぐ下）
   vec2 center = vec2(0.0, 0.20);
-  float r = length(p - center);
+  vec2 toC = p - center;
+  float r = length(toC);
+  float ang = atan(toC.y, toC.x); // -π..π
+
+  // 大域色相循環: 30s 周期で 朱→金→朱
+  float globalCycle = 0.5 + 0.5 * sin(uTime * 0.21);
+
+  // くぐる演出のキック (ease-in で蹴り出してから加速)
+  float kick = smoothstep(0.0, 0.55, uPassProgress);
+  kick = kick * kick;
 
   vec3 col = vec3(0.0);
   float aSum = 0.0;
 
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 4; i++) {
     float fi = float(i);
-    float baseRadius = 0.18 + fi * 0.08;
-    // 脈動
-    baseRadius += sin(uTime * 0.9 + fi * 1.6) * 0.004 * (1.0 + uBreath * 3.0);
-    // くぐる演出で外へ蹴り出す
-    baseRadius += uPassProgress * (0.5 + fi * 0.18);
+    // 半径の基本値
+    float baseRadius = 0.15 + fi * 0.06;
+
+    // 位相差: 内側のリングから外側へ呼吸が伝播
+    float phase = uTime * 0.85 - fi * 0.5;
+    float pulse = sin(phase) * 0.5 + 0.5;
+    baseRadius += pulse * 0.004 * (1.0 + uBreath * 3.5);
+
+    // くぐる演出で外へ蹴り出し
+    baseRadius += kick * (0.45 + fi * 0.16);
 
     // 線の太さ
-    float thickness = 0.0045 + uBreath * 0.0025;
-    // エッジを FBM で微振動
-    float wobble = (fbm(vec2(p.x * 8.0, p.y * 8.0 + uTime * 0.2)) - 0.5) * 0.004;
+    float thickness = 0.004 + uBreath * 0.003 + pulse * 0.001;
+
+    // エッジを simplex で微振動（角度ベースで連続）
+    float wobble =
+      (fbm(vec2(ang * 1.5 + fi * 2.3, uTime * 0.18 + fi)) - 0.5) * 0.0055;
     float dist = abs(r - baseRadius + wobble);
     float ring = smoothstep(thickness, 0.0, dist);
 
-    // 色: 外側ほど朱、内側ほど金
-    vec3 ringCol = mix(
-      vec3(0.756, 0.157, 0.227),  // 朱 vermilion-500
-      vec3(0.96, 0.78, 0.27),     // 金 gold-500
-      1.0 - fi / 2.0
-    );
-    col += ringCol * ring;
-    aSum += ring * 0.85;
+    // 色相: リングごとに位相差を持たせて循環。さらに脈動でわずかに明度変化
+    float hue = mix(0.4, 1.0, globalCycle) + fi * 0.08;
+    vec3 baseCol = mix(COLOR_VERMILION, COLOR_GOLD, fract(hue));
+    baseCol *= mix(0.85, 1.15, pulse);
+
+    col += baseCol * ring;
+    aSum += ring * mix(0.7, 1.0, 1.0 - fi / 4.0);
   }
 
   // 破裂すると消える
