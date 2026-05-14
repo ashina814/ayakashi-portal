@@ -40,9 +40,18 @@ import {
   WebGLRenderer,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import {
+  BlendFunction,
+  BloomEffect,
+  ChromaticAberrationEffect,
+  EffectComposer,
+  EffectPass,
+  GodRaysEffect,
+  KernelSize,
+  NoiseEffect,
+  RenderPass,
+  VignetteEffect,
+} from "postprocessing";
 
 const INK_950 = 0x0a0509;
 const INK_900 = 0x14090f;
@@ -576,22 +585,77 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   const confetti = new Points(confettiGeo, confettiMat);
   scene.add(confetti);
 
-  // ─── Bloom 後処理（quality.bloomStrength === 0 なら無効化） ────
-  const renderPass = new RenderPass(scene, camera);
-  const bloomEnabled = quality.bloomStrength > 0;
-  const bloomPass = bloomEnabled
-    ? new UnrealBloomPass(
-        new Vector2(container.clientWidth, container.clientHeight),
-        quality.bloomStrength,
-        quality.bloomRadius,
-        0.15,
-      )
-    : null;
+  // ─── Post-processing（pmndrs/postprocessing） ────────────
+  // tier ごとに使うエフェクトを切替。低スペは passthrough（renderPass のみ）。
   const composer = new EffectComposer(renderer);
-  composer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxDpr));
   composer.setSize(container.clientWidth, container.clientHeight);
-  composer.addPass(renderPass);
-  if (bloomPass) composer.addPass(bloomPass);
+  composer.addPass(new RenderPass(scene, camera));
+
+  // 各エフェクトの保持変数（dispose や resize で扱うため）
+  const effectsForDispose: Array<{ dispose?: () => void }> = [];
+
+  if (quality.tier !== "low") {
+    const effects: any[] = [];
+
+    // Bloom: 月・狐火・御札の輪郭を滲ませる本命
+    const bloom = new BloomEffect({
+      intensity: quality.tier === "high" ? 1.1 : 0.7,
+      luminanceThreshold: 0.18,
+      luminanceSmoothing: 0.4,
+      kernelSize:
+        quality.tier === "high" ? KernelSize.LARGE : KernelSize.MEDIUM,
+      mipmapBlur: true,
+    });
+    effects.push(bloom);
+    effectsForDispose.push(bloom);
+
+    // God rays: 月から差す光条。重いので high 限定
+    if (quality.tier === "high") {
+      const godRays = new GodRaysEffect(camera, moon, {
+        height: 480,
+        kernelSize: KernelSize.SMALL,
+        density: 0.92,
+        decay: 0.93,
+        weight: 0.32,
+        exposure: 0.55,
+        samples: 50,
+        clampMax: 1.0,
+      });
+      effects.push(godRays);
+      effectsForDispose.push(godRays);
+    }
+
+    // 軽い色収差: 画面端だけほんのり虹色（high のみ、強さは控えめ）
+    if (quality.tier === "high") {
+      const ca = new ChromaticAberrationEffect({
+        offset: new Vector2(0.0006, 0.0006),
+        radialModulation: true,
+        modulationOffset: 0.4,
+      });
+      effects.push(ca);
+      effectsForDispose.push(ca);
+    }
+
+    // Vignette: 画面の縁を闇に沈める（常時）
+    const vignette = new VignetteEffect({
+      darkness: quality.tier === "high" ? 0.65 : 0.55,
+      offset: 0.32,
+    });
+    effects.push(vignette);
+    effectsForDispose.push(vignette);
+
+    // Film grain: 和紙の繊維感
+    const noise = new NoiseEffect({
+      premultiply: true,
+      blendFunction: BlendFunction.SOFT_LIGHT,
+    });
+    (noise.blendMode as any).opacity.value =
+      quality.tier === "high" ? 0.32 : 0.22;
+    effects.push(noise);
+    effectsForDispose.push(noise);
+
+    composer.addPass(new EffectPass(camera, ...effects));
+  }
 
   // ─── マウス追従 & 御札ホバー状態 ────────────────
   // 詳細設計 §3: yaw ±1.5°, pitch ±0.8°、0.5s ease-out
@@ -773,7 +837,6 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
     composer.setSize(w, h);
-    bloomPass?.setSize(w, h);
   };
   window.addEventListener("resize", onResize);
 
@@ -804,6 +867,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("visibilitychange", onVisChange);
+      effectsForDispose.forEach((e) => e.dispose?.());
       composer.dispose();
       renderer.dispose();
       renderer.domElement.remove();
