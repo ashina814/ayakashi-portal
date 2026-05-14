@@ -46,6 +46,7 @@ import {
   RenderPass,
   VignetteEffect,
 } from "postprocessing";
+import { makeSumiTextTexture } from "./sumi-text";
 
 const INK_950 = 0x0a0509;
 const GOLD_100 = 0xf5e7c4;
@@ -205,6 +206,53 @@ void main() {
   alpha *= 1.0 - smoothstep(0.55, 0.95, uPassProgress);
 
   gl_FragColor = vec4(inkColor, alpha * 0.94);
+}
+`;
+
+/**
+ * 「幽世」墨書きシェーダ。
+ * Canvas で描いたグリフテクスチャを sampling し、シェーダで
+ *   - エッジを FBM で perturbation して滲ませる
+ *   - 高周波ノイズでドライブラシ
+ *   - 低周波ノイズで墨溜まりの濃淡
+ *   - reveal 方向: 左から右の wipe
+ */
+const SUMI_KANJI_FRAGMENT = `
+${NOISE_GLSL}
+uniform sampler2D uGlyph;
+uniform float uTime;
+uniform float uReveal;        // 0..1 描画進行
+uniform float uPassProgress;  // 0..1 くぐる演出
+varying vec2 vUv;
+
+void main() {
+  // FBM でサンプリング位置を揺らがせて滲み効果
+  vec2 perturb = vec2(
+    fbm(vUv * 30.0 + uTime * 0.04),
+    fbm(vUv * 30.0 + vec2(11.7, 3.3))
+  ) * 0.012 - 0.006;
+  float base = texture2D(uGlyph, vUv + perturb).a;
+
+  // 加えて中心側のサンプル（より「内側ベタ」感を出すための補強）
+  float core = texture2D(uGlyph, vUv).a;
+  float alpha = max(base * 0.9, core);
+
+  // ドライブラシ: 高周波で部分的にかすれる
+  float dry = fbm(vUv * 65.0);
+  alpha *= mix(0.55, 1.0, smoothstep(0.32, 0.7, dry));
+
+  // 墨溜まり: 低周波で濃淡
+  float pool = fbm(vUv * 7.0 + 4.2);
+  vec3 inkColor = vec3(0.93, 0.86, 0.62) * mix(0.82, 1.0, pool);
+
+  // reveal: 左から右へ wipe（柔らかい縁）
+  float revealMask = smoothstep(0.0, 0.18, uReveal - vUv.x * 0.85);
+  alpha *= revealMask;
+
+  // くぐる演出: progress でフェードアウト
+  alpha *= 1.0 - smoothstep(0.5, 0.95, uPassProgress);
+
+  gl_FragColor = vec4(inkColor, alpha);
 }
 `;
 
@@ -415,7 +463,44 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
   barrierMesh.position.z = 0.0;
   scene.add(barrierMesh);
 
-  // ─ ④ 金粉 ─────────────────────────
+  // ─ ④ 「幽世」墨書き（テクスチャ非同期ロード後にアルファ反映） ──
+  const kanjiMat = new ShaderMaterial({
+    vertexShader: QUAD_VERTEX,
+    fragmentShader: SUMI_KANJI_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      uGlyph: { value: null },
+      uTime: { value: 0 },
+      uReveal: { value: 0 },
+      uPassProgress: { value: 0 },
+    },
+  });
+  // 別 geometry: アスペクト比をテクスチャに合わせて変えるため、独自の Plane
+  const kanjiGeo = new PlaneGeometry(1, 1);
+  const kanjiMesh = new Mesh(kanjiGeo, kanjiMat);
+  // 画面上部中央寄り（NDC: 0..1 quad の位置を scale で調整）
+  kanjiMesh.position.set(0, 0.6, 0.05);
+  kanjiMesh.scale.set(0.001, 0.001, 1); // テクスチャ未ロード時は実質非表示
+  scene.add(kanjiMesh);
+
+  // 非同期: 「幽世」テクスチャ生成 → uniform 注入 + 適切スケール
+  let kanjiRevealStart = 0;
+  void makeSumiTextTexture("幽世")
+    .then((res) => {
+      kanjiMat.uniforms.uGlyph.value = res.texture;
+      const aspect = res.width / res.height;
+      // NDC 上で kanji 縦サイズが 0.32 になるよう scale を決定
+      const desiredHeight = 0.32;
+      kanjiMesh.scale.set(desiredHeight * aspect, desiredHeight, 1);
+      kanjiRevealStart = performance.now();
+    })
+    .catch((err) => {
+      // 失敗してもシーン本体は崩さない
+      console.warn("[scene] sumi text load failed:", err);
+    });
+
+  // ─ ⑤ 金粉 ─────────────────────────
   const dustTexture = makeDustSprite();
   const dustGeo = new BufferGeometry();
   const dustCount = quality.goldDustCount;
@@ -515,6 +600,15 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
     paperMat.uniforms.uTime.value = t;
     toriiMat.uniforms.uTime.value = t;
     barrierMat.uniforms.uTime.value = t;
+    kanjiMat.uniforms.uTime.value = t;
+
+    // 「幽世」reveal: テクスチャがロードされてから 2.5s かけて左→右
+    if (kanjiRevealStart > 0) {
+      const elapsed = (performance.now() - kanjiRevealStart) / 1000;
+      const reveal = Math.min(1, elapsed / 2.5);
+      // ease-out cubic
+      kanjiMat.uniforms.uReveal.value = 1 - Math.pow(1 - reveal, 3);
+    }
 
     if (!prefersReducedMotion) {
       // 結界の脈動強度を補間
@@ -581,6 +675,7 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       const clamped = Math.max(0, Math.min(1, p));
       toriiMat.uniforms.uPassProgress.value = clamped;
       barrierMat.uniforms.uPassProgress.value = clamped;
+      kanjiMat.uniforms.uPassProgress.value = clamped;
     },
     triggerConfetti() {
       if (confettiActive) return;
@@ -598,9 +693,12 @@ export function initToriiScene(container: HTMLElement): ToriiScene {
       renderer.domElement.remove();
       dustTexture.dispose();
       quadGeo.dispose();
+      kanjiGeo.dispose();
       paperMat.dispose();
       toriiMat.dispose();
       barrierMat.dispose();
+      kanjiMat.dispose();
+      (kanjiMat.uniforms.uGlyph.value as any)?.dispose?.();
       dustGeo.dispose();
       dustMat.dispose();
     },
