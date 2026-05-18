@@ -1,0 +1,1109 @@
+---
+/**
+ * ログイン画面ステージ (D 案ハイブリッド)
+ *
+ * prototypes/prototype.html を移植したもの。
+ * 詳細は prototypes/HANDOFF.md / 引き継ぎ資料v3.md を参照。
+ *
+ * 認証連携: enter() の最後で `#auth-form` を submit する。
+ * フォームが無い (Stage 単体表示) ときは OAUTH_URL に GET 直行。
+ */
+---
+
+<div class="loader" id="loader" aria-hidden="true">
+  <div class="loader-line"></div>
+  <div class="loader-text">
+    気配を辿っています<span class="loader-dots"></span>
+  </div>
+  <div class="loader-spark s1"></div>
+  <div class="loader-spark s2"></div>
+  <div class="loader-spark s3"></div>
+</div>
+
+<div class="stage" id="stage">
+  <div class="bg-base"></div>
+  <div class="grain"></div>
+
+  <div class="world-kanji" id="worldKanji"><span>参</span></div>
+
+  <div class="moon-scan"></div>
+
+  <div class="fog" id="fog1"></div>
+  <div class="fog fog-2"></div>
+
+  <div class="vignette"></div>
+
+  <div class="poem" aria-hidden="true">
+    <span>夜　ふかし</span><br />
+    <span>霧　黄泉に　しづみ</span><br />
+    <span class="em">灯　ひとつ</span>
+  </div>
+
+  <div class="header">
+    <div class="rule"></div>
+    <h1>幽世</h1>
+    <div class="sub">あやかしの集う社</div>
+  </div>
+
+  <div id="foxfire-container"></div>
+
+  <div class="ofuda-wrap">
+    <button class="ofuda" id="ofuda" type="button" aria-label="参拝（Discordでログイン）">
+      <svg viewBox="0 0 110 320">
+        <defs>
+          <linearGradient id="ofuda-bg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#2a1c25" />
+            <stop offset="1" stop-color="#14090f" />
+          </linearGradient>
+          <linearGradient id="ofuda-edge" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#e0c684" />
+            <stop offset="1" stop-color="#8a6d24" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M 55 4 L 100 26 L 100 312 L 10 312 L 10 26 Z"
+          fill="url(#ofuda-bg)"
+          stroke="url(#ofuda-edge)"
+          stroke-width="1.4"
+        />
+        <path
+          d="M 55 16 L 91 33 L 91 302 L 19 302 L 19 33 Z"
+          fill="none"
+          stroke="#8a6d24"
+          stroke-width="0.5"
+          opacity="0.55"
+        />
+        <circle cx="55" cy="44" r="3" fill="#b89540" opacity="0.85" />
+        <g transform="translate(55, 240)">
+          <rect
+            x="-13" y="-13" width="26" height="26"
+            fill="#b04438" opacity="0.85" transform="rotate(-2)"
+          />
+          <rect
+            x="-10" y="-10" width="20" height="20"
+            fill="none" stroke="#f5e7c4" stroke-width="0.8"
+            opacity="0.6" transform="rotate(-2)"
+          />
+          <text
+            x="0" y="4"
+            font-family='"Yuji Syuku", serif'
+            font-size="14"
+            text-anchor="middle"
+            fill="#f5e7c4"
+            opacity="0.75"
+            transform="rotate(-2)"
+          >幽</text>
+        </g>
+      </svg>
+      <div class="ofuda-text">参拝</div>
+    </button>
+    <div class="ofuda-hint">Discordで参拝</div>
+  </div>
+
+  <a class="chrome-skip" href="#" id="skip">結界を抜ける →</a>
+  <button class="chrome-mute" id="mute" type="button">♪ MUTE</button>
+  <div class="hour-mark" id="hourMark">
+    <div class="hour" id="hourKanji">戌の刻</div>
+    <div class="meta">AYAKASHI-PORTAL / v0.1.0</div>
+  </div>
+</div>
+
+<div class="kime-bloom" id="kimeBloom" aria-hidden="true"></div>
+<div class="cursor-halo" id="cursorHalo"></div>
+<div class="flash" id="flash"></div>
+
+<style is:global>
+  /* ─── 妖ポータル ログイン画面ステージ
+   *
+   * デザイントークンは global.css の --color-* に依存。
+   * このコンポーネントは login ページ専用なので is:global で出している
+   * (JS が動的生成する .foxfire 要素も同じ CSS でマッチさせるため)。
+   * ─────────────────────────────────────── */
+
+  /* stage: cinematic forward push on click */
+  .stage {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    transform-origin: 50% 60%;
+    transition:
+      transform 5s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 5s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .stage.is-entering {
+    transform: scale(1.05);
+    filter: brightness(0.85);
+  }
+
+  /* background washes */
+  .bg-base {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 0%,
+        rgba(184, 224, 255, 0.13) 0%, transparent 60%),
+      radial-gradient(ellipse 80% 40% at 50% 100%,
+        rgba(176, 68, 56, 0.10) 0%, transparent 70%);
+  }
+
+  .grain {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.08;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  /* world: giant kanji */
+  .world-kanji {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+  .world-kanji span {
+    font-family: "Yuji Syuku", serif;
+    font-size: clamp(420px, 70vh, 760px);
+    line-height: 0.9;
+    color: transparent;
+    background: linear-gradient(180deg,
+      rgba(245, 231, 196, 0.18) 0%,
+      rgba(184, 149, 64, 0.24) 40%,
+      rgba(138, 109, 36, 0.06) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    user-select: none;
+    margin-top: -2vh;
+    animation:
+      kanjiBreath 12s ease-in-out infinite,
+      kanjiBleed 7s ease-in-out infinite;
+  }
+  @keyframes kanjiBreath {
+    0%, 100% { opacity: 0.95; }
+    50%      { opacity: 1; }
+  }
+  @keyframes kanjiBleed {
+    0%, 100% { filter: drop-shadow(0 0 50px rgba(184, 224, 255, 0.10)) blur(0.6px); }
+    33%      { filter: drop-shadow(0 0 80px rgba(184, 224, 255, 0.16)) blur(1.4px); }
+    66%      { filter: drop-shadow(0 0 65px rgba(184, 149, 64, 0.12)) blur(0.9px); }
+  }
+
+  /* fog bands */
+  .fog {
+    position: absolute;
+    left: -10%;
+    right: -10%;
+    bottom: 0;
+    height: 50%;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+      transparent 0%,
+      rgba(184, 224, 255, 0.05) 30%,
+      rgba(184, 224, 255, 0.09) 70%,
+      transparent 100%);
+    filter: blur(4px);
+    animation: fogDrift 24s ease-in-out infinite alternate;
+    transition: transform 1s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+  .fog.fog-2 {
+    height: 30%;
+    background: linear-gradient(180deg, transparent, rgba(10, 5, 9, 0.65));
+    filter: none;
+    animation: none;
+  }
+  @keyframes fogDrift {
+    from { transform: translateX(-2%); }
+    to   { transform: translateX(2%); }
+  }
+
+  /* header: server name */
+  .header {
+    position: absolute;
+    top: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    animation: headerIn 2s 1.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .header .rule {
+    width: 80px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-gold-500) 50%, transparent);
+  }
+  .header h1 {
+    margin: 0;
+    font-family: "Yuji Syuku", serif;
+    font-size: 44px;
+    font-weight: 400;
+    letter-spacing: 0.6em;
+    padding-left: 0.6em;
+    color: var(--color-gold-100);
+    text-shadow: 0 0 28px rgba(184, 224, 255, 0.4);
+  }
+  .header .sub {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    padding-left: 0.5em;
+    color: var(--color-mist-500);
+  }
+  @keyframes headerIn {
+    from { opacity: 0; filter: blur(10px); transform: translate(-50%, -8px); }
+    to   { opacity: 1; filter: blur(0);    transform: translate(-50%, 0); }
+  }
+
+  /* foxfire particles */
+  .foxfire {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-mist-glow);
+    box-shadow: 0 0 18px 3px rgba(184, 224, 255, 0.55);
+    pointer-events: none;
+    opacity: 0;
+    animation: foxRise var(--dur, 7s) ease-in-out var(--delay, 0s) infinite;
+  }
+  @keyframes foxRise {
+    0%   { opacity: 0; transform: translate(0, 0) scale(0.7); }
+    15%  { opacity: 1; }
+    50%  { transform: translate(var(--sway, 20px), -40px) scale(1); }
+    85%  { opacity: 0.7; }
+    100% { opacity: 0; transform: translate(calc(var(--sway, 20px) * -1), -120px) scale(0.5); }
+  }
+
+  /* ofuda (CTA) */
+  .ofuda-wrap {
+    position: absolute;
+    bottom: 7%;
+    left: 50%;
+    transform: translateX(-50%);
+    animation: ofudaIn 2s 2.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes ofudaIn {
+    from { opacity: 0; transform: translate(-50%, 40px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+  }
+  .ofuda {
+    position: relative;
+    width: 110px;
+    height: 320px;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    animation: ofudaSway 4s ease-in-out infinite;
+    transform-origin: 50% 0%;
+    transition: filter 0.3s ease-out;
+    filter: drop-shadow(0 0 20px rgba(184, 224, 255, 0.18));
+  }
+  @keyframes ofudaSway {
+    0%, 100% { transform: rotate(-1.5deg); }
+    50%      { transform: rotate(1.5deg); }
+  }
+  .ofuda:hover {
+    animation-duration: 2.5s;
+    filter:
+      drop-shadow(0 0 32px rgba(184, 224, 255, 0.45))
+      drop-shadow(0 0 12px rgba(184, 149, 64, 0.5));
+  }
+  .ofuda:hover .ofuda-text {
+    color: var(--color-mist-100);
+    text-shadow: 0 0 18px var(--color-mist-glow);
+  }
+  .ofuda:focus-visible {
+    outline: 2px solid var(--color-gold-500);
+    outline-offset: 6px;
+  }
+  .ofuda svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .ofuda-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    font-family: "Yuji Syuku", serif;
+    font-size: 38px;
+    color: var(--color-gold-100);
+    letter-spacing: 0.2em;
+    text-shadow: 0 0 12px rgba(184, 224, 255, 0.35);
+    padding: 28px 0;
+    transition: color 0.4s, text-shadow 0.4s;
+    pointer-events: none;
+  }
+  .ofuda-hint {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 24px);
+    transform: translateY(-50%);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--color-mist-500);
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+    opacity: 0.7;
+  }
+
+  /* chrome */
+  .chrome-skip {
+    position: absolute;
+    top: 28px;
+    right: 32px;
+    font-family: "Noto Sans JP", sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    color: rgba(245, 231, 196, 0.45);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .chrome-skip:hover { color: var(--color-gold-100); }
+
+  .chrome-mute {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: none;
+    border: 1px solid rgba(245, 231, 196, 0.2);
+    color: rgba(245, 231, 196, 0.55);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .chrome-mute:hover {
+    color: var(--color-gold-100);
+    border-color: var(--color-gold-500);
+  }
+
+  /* vignette */
+  .vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse 90% 70% at 50% 50%,
+      transparent 40%,
+      rgba(10, 5, 9, 0.55) 85%,
+      rgba(10, 5, 9, 0.85) 100%);
+    z-index: 10;
+  }
+  .vignette::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 0% 0%, rgba(10, 5, 9, 0.6) 0%, transparent 35%),
+      radial-gradient(circle at 100% 0%, rgba(10, 5, 9, 0.6) 0%, transparent 35%),
+      radial-gradient(circle at 0% 100%, rgba(10, 5, 9, 0.7) 0%, transparent 40%),
+      radial-gradient(circle at 100% 100%, rgba(10, 5, 9, 0.7) 0%, transparent 40%);
+  }
+
+  /* vertical poem column (left edge) */
+  .poem {
+    position: absolute;
+    top: 12%;
+    bottom: 12%;
+    left: 5.5%;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 13px;
+    letter-spacing: 0.8em;
+    color: rgba(184, 202, 216, 0.42);
+    z-index: 5;
+    animation: poemIn 2.5s 3.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+    user-select: none;
+    line-height: 1.4;
+  }
+  .poem .em { color: rgba(245, 231, 196, 0.7); }
+  @keyframes poemIn {
+    from { opacity: 0; filter: blur(8px); transform: translateY(-12px); }
+    to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
+  }
+
+  /* hour mark (十二時辰) */
+  .hour-mark {
+    position: absolute;
+    bottom: 26px;
+    left: 32px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    z-index: 5;
+  }
+  .hour-mark .hour {
+    font-family: "Yuji Syuku", serif;
+    font-size: 22px;
+    letter-spacing: 0.1em;
+    color: var(--color-gold-300);
+    text-shadow: 0 0 12px rgba(184, 224, 255, 0.25);
+  }
+  .hour-mark .meta {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: rgba(245, 231, 196, 0.4);
+  }
+
+  /* slow moonlight scan */
+  .moon-scan {
+    position: absolute;
+    left: -10%;
+    right: -10%;
+    top: -10%;
+    height: 8%;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+      transparent,
+      rgba(184, 224, 255, 0.10) 50%,
+      transparent);
+    filter: blur(20px);
+    animation: moonScan 22s linear infinite;
+    z-index: 4;
+    mix-blend-mode: screen;
+  }
+  @keyframes moonScan {
+    from { transform: translateY(0); }
+    to   { transform: translateY(1400%); }
+  }
+
+  /* custom cursor halo */
+  .cursor-halo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 90;
+    background: radial-gradient(circle,
+      rgba(184, 224, 255, 0.20) 0%,
+      rgba(184, 224, 255, 0.06) 35%,
+      transparent 70%);
+    transform: translate(-50%, -50%);
+    transition:
+      width 0.3s ease-out,
+      height 0.3s ease-out,
+      background 0.3s;
+    opacity: 0;
+  }
+  .cursor-halo.visible { opacity: 1; }
+  .cursor-halo.is-near-ofuda {
+    width: 120px;
+    height: 120px;
+    background: radial-gradient(circle,
+      rgba(184, 224, 255, 0.35) 0%,
+      rgba(184, 224, 255, 0.10) 40%,
+      transparent 70%);
+  }
+
+  /* ENDING SEQUENCE: 「参」が沈む → 太鼓の一打 → emerge → 白 */
+  .world-kanji.is-awakening {
+    z-index: 92;
+  }
+  .world-kanji.is-awakening span {
+    animation: worldKanjiAwaken 3.2s cubic-bezier(0.5, 0, 0.25, 1) forwards;
+  }
+  @keyframes worldKanjiAwaken {
+    0% {
+      opacity: 1;
+      transform: scale(1);
+      color: transparent;
+      background: linear-gradient(180deg,
+        rgba(245, 231, 196, 0.18) 0%,
+        rgba(184, 149, 64, 0.24) 40%,
+        rgba(138, 109, 36, 0.06) 100%);
+      -webkit-background-clip: text;
+              background-clip: text;
+      filter: drop-shadow(0 0 60px rgba(184, 224, 255, 0.10));
+    }
+    8% {
+      opacity: 0.6;
+      transform: scale(0.95);
+      filter: drop-shadow(0 0 24px rgba(184, 224, 255, 0.04));
+    }
+    10% {
+      opacity: 0.55;
+      transform: scale(0.94);
+      filter: drop-shadow(0 0 24px rgba(184, 224, 255, 0.04));
+    }
+    16% {
+      opacity: 1;
+      transform: scale(1.06);
+      filter:
+        drop-shadow(0 0 140px rgba(245, 231, 196, 0.7))
+        drop-shadow(0 0 35px rgba(255, 250, 230, 0.6));
+    }
+    48% {
+      opacity: 1;
+      transform: scale(1.5);
+      color: rgba(245, 231, 196, 0.88);
+      background: none;
+      -webkit-background-clip: initial;
+              background-clip: initial;
+      -webkit-text-fill-color: rgba(245, 231, 196, 0.88);
+      filter:
+        drop-shadow(0 0 100px rgba(245, 231, 196, 0.6))
+        drop-shadow(0 0 240px rgba(184, 224, 255, 0.5));
+    }
+    82% {
+      opacity: 1;
+      transform: scale(2.3);
+      color: #fff;
+      background: none;
+      -webkit-background-clip: initial;
+              background-clip: initial;
+      -webkit-text-fill-color: #fff;
+      filter:
+        drop-shadow(0 0 160px #fff)
+        drop-shadow(0 0 400px rgba(245, 231, 196, 1));
+    }
+    /* 白に転調しきった「参」を一拍ホールド: bloom と尺を被せて seam を消す */
+    92% {
+      opacity: 1;
+      transform: scale(3.4);
+      color: #fff;
+      background: none;
+      -webkit-background-clip: initial;
+              background-clip: initial;
+      -webkit-text-fill-color: #fff;
+      filter:
+        drop-shadow(0 0 240px #fff)
+        drop-shadow(0 0 560px #fff);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(4.5);
+      color: #fff;
+      background: none;
+      -webkit-background-clip: initial;
+              background-clip: initial;
+      -webkit-text-fill-color: #fff;
+      filter:
+        drop-shadow(0 0 320px #fff)
+        drop-shadow(0 0 800px #fff);
+    }
+  }
+
+  .ofuda.is-vanishing {
+    animation: ofudaFadeForVanish 1.0s ease-in forwards;
+  }
+  @keyframes ofudaFadeForVanish {
+    from { opacity: 1; filter: drop-shadow(0 0 18px rgba(184, 224, 255, 0.2)); }
+    to   { opacity: 0; filter: drop-shadow(0 0 60px rgba(245, 231, 196, 0.8)); }
+  }
+
+  .stage.is-fading-out {
+    animation: stageFadeOut 1.6s ease-in forwards;
+  }
+  @keyframes stageFadeOut {
+    from { filter: brightness(1) blur(0); }
+    to   { filter: brightness(0.3) blur(3px); }
+  }
+  .stage.is-fading-out .world-kanji.is-awakening {
+    filter: brightness(1) !important;
+  }
+
+  /* click flash & kime bloom */
+  .flash {
+    position: fixed;
+    inset: 0;
+    background: var(--color-mist-100);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .kime-bloom {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 90;
+    opacity: 0;
+    background: radial-gradient(circle at 50% 50%,
+      rgba(255, 250, 230, 1) 0%,
+      rgba(255, 250, 230, 1) 25%,
+      rgba(245, 231, 196, 0.92) 45%,
+      rgba(184, 224, 255, 0.55) 65%,
+      transparent 88%);
+    transform: scale(0.2);
+    transform-origin: 50% 50%;
+  }
+  .kime-bloom.active {
+    animation: kimeBloom 2.6s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+  }
+  @keyframes kimeBloom {
+    0%   { opacity: 0;    transform: scale(0.15); }
+    20%  { opacity: 0.55; transform: scale(0.7); }
+    55%  { opacity: 0.95; transform: scale(1.8); }
+    100% { opacity: 1;    transform: scale(3.6); }
+  }
+  .flash.active {
+    animation: flashKime 2.0s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  @keyframes flashKime {
+    0%   { opacity: 0; }
+    70%  { opacity: 0.9; }
+    100% { opacity: 1; }
+  }
+
+  /* loader */
+  .loader {
+    position: fixed;
+    inset: 0;
+    background: var(--color-ink-950);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 40px;
+    animation: loaderOut 1.2s 3.2s cubic-bezier(0.5, 0, 0.5, 1) forwards;
+    pointer-events: none;
+  }
+  .loader-line {
+    width: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent,
+      var(--color-gold-500) 50%,
+      transparent);
+    animation: lineSweep 1.4s 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .loader-text {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    letter-spacing: 0.6em;
+    padding-left: 0.6em;
+    color: var(--color-mist-500);
+    opacity: 0;
+    animation: loaderTextIn 1.2s 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .loader-dots {
+    display: inline-block;
+    width: 24px;
+    text-align: left;
+  }
+  .loader-dots::after {
+    content: "";
+    animation: dots 1.4s steps(4, end) 1.5s infinite;
+  }
+  .loader-spark {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--color-mist-glow);
+    box-shadow: 0 0 12px 2px rgba(184, 224, 255, 0.7);
+    opacity: 0;
+    animation: sparkBlink 2.4s ease-in-out 1.6s infinite;
+  }
+  .loader-spark.s1 { left: 38%; top: 48%; animation-delay: 1.6s; }
+  .loader-spark.s2 { left: 58%; top: 52%; animation-delay: 1.9s; }
+  .loader-spark.s3 { left: 50%; top: 60%; animation-delay: 2.2s; }
+  @keyframes lineSweep {
+    0%   { width: 0;     opacity: 0; }
+    20%  { opacity: 1; }
+    100% { width: 240px; opacity: 1; }
+  }
+  @keyframes loaderTextIn {
+    from { opacity: 0; filter: blur(8px); transform: translateY(6px); }
+    to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
+  }
+  @keyframes sparkBlink {
+    0%, 100% { opacity: 0; }
+    50%      { opacity: 1; }
+  }
+  @keyframes dots {
+    0%   { content: ""; }
+    25%  { content: "・"; }
+    50%  { content: "・・"; }
+    75%  { content: "・・・"; }
+    100% { content: ""; }
+  }
+  @keyframes loaderOut {
+    from { opacity: 1; }
+    to   { opacity: 0; visibility: hidden; }
+  }
+
+  /* mobile (≤768px) — 「参」を vmin ベースに、狐火本数は JS 側で半減 */
+  @media (max-width: 768px) {
+    .world-kanji span {
+      font-size: clamp(220px, 60vmin, 520px);
+    }
+  }
+
+  /* reduced motion (HANDOFF.md §4.4) */
+  @media (prefers-reduced-motion: reduce) {
+    .world-kanji span,
+    .fog,
+    .foxfire,
+    .ofuda,
+    .loader-spark,
+    .moon-scan { animation: none !important; }
+    .header, .ofuda-wrap { animation: none !important; opacity: 1 !important; }
+    .loader { animation-delay: 0s !important; animation-duration: 0.4s !important; }
+    .world-kanji.is-awakening span,
+    .ofuda.is-vanishing,
+    .stage.is-fading-out,
+    .kime-bloom.active,
+    .flash.active { animation: none !important; }
+    .kime-bloom.active { opacity: 0.3 !important; transform: none !important; }
+  }
+
+  /* low-spec (HANDOFF.md §4.5) */
+  html.low-spec .moon-scan,
+  html.low-spec .fog { animation: none !important; }
+  html.low-spec .world-kanji span {
+    animation: kanjiBreath 12s ease-in-out infinite !important;
+  }
+</style>
+
+<script>
+  // ─── 本番化フラグ ─────────────────────────────
+  // 既定: 御札クリックで /api/auth/discord に遷移、skip も同じく直行。
+  // ?demo=1 のときだけ演出後にリセット (プレビュー確認用)。
+  const DEMO_MODE = new URLSearchParams(location.search).get("demo") === "1";
+  const OAUTH_URL = "/api/auth/discord";
+
+  // 認証フォームがあれば submit、無ければ OAUTH_URL に直行。
+  function submitAuth(): void {
+    const form = document.getElementById("auth-form") as HTMLFormElement | null;
+    if (form) {
+      form.submit();
+    } else {
+      window.location.href = OAUTH_URL;
+    }
+  }
+
+  // ─── 初回 / 2回目以降の切替 (HANDOFF.md §4.3) ───
+  if (new URLSearchParams(location.search).get("reset") === "1") {
+    localStorage.removeItem("ayakashi-visited");
+  }
+  const seenBefore = localStorage.getItem("ayakashi-visited") === "1";
+  if (seenBefore) {
+    const loaderEl = document.getElementById("loader");
+    if (loaderEl) loaderEl.style.display = "none";
+    document.body.classList.add("is-returning");
+  } else {
+    localStorage.setItem("ayakashi-visited", "1");
+  }
+
+  // ─── 低スペック検出 (HANDOFF.md §4.5) ───
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const lowSpec =
+    (nav.hardwareConcurrency ?? 8) < 4 ||
+    (nav.deviceMemory ?? 8) < 4;
+  if (lowSpec) document.documentElement.classList.add("low-spec");
+
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)"
+  ).matches;
+
+  // ─── foxfire ─────────────
+  const foxContainer = document.getElementById("foxfire-container")!;
+  const FOX_COUNT = lowSpec
+    ? 8
+    : window.matchMedia("(max-width: 768px)").matches
+      ? 12
+      : 24;
+  for (let i = 0; i < FOX_COUNT; i++) {
+    const f = document.createElement("div");
+    f.className = "foxfire";
+    const left = Math.random() * 100;
+    const top = 30 + Math.random() * 60;
+    const dur = 5 + Math.random() * 4;
+    const delay = -Math.random() * dur;
+    const sway = (Math.random() - 0.5) * 60;
+    const size = 3 + Math.random() * 4;
+    f.style.cssText = `
+      left: ${left}%;
+      top: ${top}%;
+      width: ${size}px;
+      height: ${size}px;
+      --dur: ${dur}s;
+      --delay: ${delay}s;
+      --sway: ${sway}px;
+    `;
+    foxContainer.appendChild(f);
+  }
+
+  // ─── enter / skip ─────────────
+  const stage = document.getElementById("stage")!;
+  const flash = document.getElementById("flash")!;
+  const ofuda = document.getElementById("ofuda")! as HTMLButtonElement;
+
+  function convergeFoxfire(): void {
+    const r = ofuda.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    document.querySelectorAll<HTMLElement>(".foxfire").forEach((f) => {
+      const fr = f.getBoundingClientRect();
+      const dx = cx - (fr.left + fr.width / 2);
+      const dy = cy - (fr.top + fr.height / 2);
+      f.style.animation = "none";
+      f.animate(
+        [
+          { transform: "translate(0,0) scale(1)", opacity: 0.9 },
+          {
+            transform: `translate(${dx * 0.9}px, ${dy * 0.9}px) scale(2.2)`,
+            opacity: 1,
+            offset: 0.85,
+          },
+          { transform: `translate(${dx}px, ${dy}px) scale(0)`, opacity: 0 },
+        ],
+        {
+          duration: 700 + Math.random() * 400,
+          delay: Math.random() * 250,
+          easing: "cubic-bezier(0.5, 0, 0.75, 0)",
+          fill: "forwards",
+        }
+      );
+    });
+  }
+
+  let entering = false;
+  function enter(): void {
+    if (entering) return;
+    entering = true;
+
+    const worldKanjiEl = document.querySelector(".world-kanji")!;
+    const kimeBloom = document.getElementById("kimeBloom")!;
+
+    // reduced-motion: 演出は fade のみ。400ms 後に遷移。
+    if (prefersReducedMotion) {
+      flash.classList.add("active");
+      setTimeout(() => {
+        if (!DEMO_MODE) {
+          submitAuth();
+          return;
+        }
+        entering = false;
+        flash.classList.remove("active");
+      }, 400);
+      return;
+    }
+
+    worldKanjiEl.classList.add("is-awakening");
+    setTimeout(() => {
+      convergeFoxfire();
+      ofuda.classList.add("is-vanishing");
+    }, 300);
+    setTimeout(() => stage.classList.add("is-fading-out"), 700);
+    setTimeout(() => kimeBloom.classList.add("active"), 1700);
+    setTimeout(() => flash.classList.add("active"), 1700);
+
+    setTimeout(() => {
+      if (!DEMO_MODE) {
+        submitAuth();
+        return;
+      }
+      entering = false;
+      ofuda.classList.remove("is-vanishing");
+      stage.classList.remove("is-fading-out");
+      worldKanjiEl.classList.remove("is-awakening");
+      kimeBloom.classList.remove("active");
+      flash.classList.remove("active");
+      document.querySelectorAll<HTMLElement>(".foxfire").forEach((f) => {
+        f.getAnimations().forEach((a) => a.cancel());
+        f.style.animation = "";
+      });
+    }, 4200);
+  }
+
+  ofuda.addEventListener("click", enter);
+  ofuda.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      enter();
+    }
+  });
+
+  // 結界を抜ける: 演出をスキップして OAuth に直行 (HANDOFF.md §4.2)。
+  document.getElementById("skip")!.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (DEMO_MODE) {
+      enter();
+    } else {
+      submitAuth();
+    }
+  });
+
+  // ─── audio (Web Audio API シンセ、プレースホルダ)
+  // HANDOFF.md §4.6: 本番では Howler.js + mp3/ogg に置き換える想定。
+  let audioCtx: AudioContext | null = null;
+  let masterGain: GainNode | null = null;
+  let ambient: { osc1: OscillatorNode; osc2: OscillatorNode; osc3: OscillatorNode; lfo: OscillatorNode; g: GainNode } | null = null;
+  let muted = localStorage.getItem("ayakashi-muted") !== "0";
+
+  function initAudio(): void {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = muted ? 0 : 0.6;
+    masterGain.connect(audioCtx.destination);
+  }
+  function ensureAudio(): void {
+    initAudio();
+    if (audioCtx!.state === "suspended") audioCtx!.resume();
+  }
+
+  function playRustle(): void {
+    ensureAudio();
+    const ctx = audioCtx!;
+    const dur = 0.18;
+    const bufferSize = Math.floor(ctx.sampleRate * dur);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.02 * w) / 1.02;
+      data[i] = last * 3.5;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 1200;
+    const g = ctx.createGain();
+    const now = ctx.currentTime;
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(0.08, now + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0005, now + dur);
+    src.connect(filter).connect(g).connect(masterGain!);
+    src.start(now);
+  }
+
+  function startAmbient(): void {
+    if (ambient) return;
+    ensureAudio();
+    const ctx = audioCtx!;
+    const make = (freq: number) => {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = freq;
+      return o;
+    };
+    const osc1 = make(73);
+    const osc2 = make(79);
+    const osc3 = make(220);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 380;
+    filter.Q.value = 1.2;
+    const g = ctx.createGain();
+    g.gain.value = 0.09;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.07;
+    const lfoG = ctx.createGain();
+    lfoG.gain.value = 0.04;
+    lfo.connect(lfoG);
+    lfoG.connect(g.gain);
+    osc1.connect(filter);
+    osc2.connect(filter);
+    osc3.connect(filter);
+    filter.connect(g).connect(masterGain!);
+    osc1.start();
+    osc2.start();
+    osc3.start();
+    lfo.start();
+    ambient = { osc1, osc2, osc3, lfo, g };
+  }
+
+  function setMuted(m: boolean): void {
+    muted = m;
+    if (masterGain && audioCtx) {
+      const now = audioCtx.currentTime;
+      masterGain.gain.cancelScheduledValues(now);
+      masterGain.gain.linearRampToValueAtTime(m ? 0 : 0.6, now + 0.6);
+    }
+    localStorage.setItem("ayakashi-muted", m ? "1" : "0");
+    const btn = document.getElementById("mute")!;
+    btn.textContent = m ? "♪ MUTE" : "♪ ON";
+  }
+
+  const muteBtn = document.getElementById("mute")!;
+  muteBtn.addEventListener("click", () => {
+    const newMuted = !muted;
+    setMuted(newMuted);
+    if (!newMuted) {
+      ensureAudio();
+      startAmbient();
+    }
+  });
+  muteBtn.textContent = muted ? "♪ MUTE" : "♪ ON";
+
+  // 御札ホバーで紙擦れ音 (rate-limit)
+  let lastRustle = 0;
+  ofuda.addEventListener("mouseenter", () => {
+    if (muted) return;
+    const now = Date.now();
+    if (now - lastRustle < 400) return;
+    lastRustle = now;
+    playRustle();
+  });
+
+  // ─── mouse parallax ─────────────
+  const worldKanji = document.getElementById("worldKanji")!;
+  const cursorHalo = document.getElementById("cursorHalo")!;
+  let targetX = 0, targetY = 0;
+  let curX = 0, curY = 0;
+  let haloX = 0, haloY = 0;
+  let haloTX = 0, haloTY = 0;
+  window.addEventListener("mousemove", (e) => {
+    const nx = (e.clientX / window.innerWidth - 0.5) * 2;
+    const ny = (e.clientY / window.innerHeight - 0.5) * 2;
+    targetX = nx;
+    targetY = ny;
+    haloTX = e.clientX;
+    haloTY = e.clientY;
+    cursorHalo.classList.add("visible");
+    const r = ofuda.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
+    cursorHalo.classList.toggle("is-near-ofuda", dist < 220);
+  });
+  window.addEventListener("mouseleave", () => {
+    cursorHalo.classList.remove("visible");
+  });
+  function tick(): void {
+    curX += (targetX - curX) * 0.06;
+    curY += (targetY - curY) * 0.06;
+    haloX += (haloTX - haloX) * 0.18;
+    haloY += (haloTY - haloY) * 0.18;
+    worldKanji.style.transform = `translate(${-curX * 14}px, ${-curY * 10}px)`;
+    cursorHalo.style.transform = `translate(${haloX}px, ${haloY}px) translate(-50%, -50%)`;
+    requestAnimationFrame(tick);
+  }
+  if (!prefersReducedMotion && !lowSpec) {
+    requestAnimationFrame(tick);
+  }
+
+  // ─── 十二時辰 ─────────────
+  const hourKanji = document.getElementById("hourKanji")!;
+  const HOURS = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+  function updateHour(): void {
+    const h = new Date().getHours();
+    // 子の刻 = 23-1, so shift by 1
+    const idx = Math.floor(((h + 1) % 24) / 2);
+    hourKanji.textContent = `${HOURS[idx]}の刻`;
+  }
+  updateHour();
+  setInterval(updateHour, 60 * 1000);
+</script>

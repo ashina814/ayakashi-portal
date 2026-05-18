@@ -1,40 +1,17 @@
 ---
 /**
- * ログイン画面
+ * ログイン画面 (D 案ハイブリッド)
  *
- * 詳細設計 v1 準拠:
- *   - 「世界が先、UI は後」: 3D シーンを全面、UI は脇役
- *   - 上中央: サーバー名「幽世」(blur フェードイン)
- *   - 中央下: 御札（参拝 CTA）
- *   - 右上: スキップ「結界を抜ける」
- *   - 右下: 音量トグル（ガワのみ、実音は M4d で）
- *
- * 御札クリック → くぐり演出（カメラ前進 + 白フラッシュ）は PR γ で追加。
+ * - Three.js 路線は廃止 (prototypes/HANDOFF.md §1)
+ * - 純 HTML / CSS / SVG の Stage.astro を 1 枚マウント
+ * - 認証は Auth.js の Discord プロバイダに POST (CSRF token 必須)
  */
+import Stage from "../components/login/Stage.astro";
+import "../styles/global.css";
 
 if (Astro.locals.session) {
   return Astro.redirect("/");
 }
-
-const SERVER_NAME = "幽世";
-
-// 和暦の今日: 「令和七年 卯月 廿三日」風
-const today = new Date();
-const wareki = (() => {
-  try {
-    const era = new Intl.DateTimeFormat("ja-JP-u-ca-japanese", {
-      era: "long",
-      year: "numeric",
-    }).format(today);
-    const mmdd = new Intl.DateTimeFormat("ja-JP", {
-      month: "long",
-      day: "numeric",
-    }).format(today);
-    return `${era} ${mmdd}`;
-  } catch {
-    return "";
-  }
-})();
 ---
 
 <html lang="ja">
@@ -42,511 +19,49 @@ const wareki = (() => {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>参拝 — {SERVER_NAME}</title>
+    <title>参拝 — 幽世</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Shippori+Mincho+B1:wght@400;500;700&family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"
     />
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { height: 100%; }
-      body {
-        min-height: 100dvh;
-        background: #0a0509;
-        color: #f5e7c4;
-        font-family: "Yuji Syuku", serif;
-        overflow: hidden;
-        position: relative;
-      }
-
-      /* 3D シーンが占める全画面 */
-      .scene-root {
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-      }
-      .scene-root canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .scene-root {
-          background:
-            radial-gradient(
-              ellipse at 30% 25%,
-              rgba(245, 231, 196, 0.06) 0%,
-              transparent 50%
-            ),
-            radial-gradient(
-              ellipse at 50% 80%,
-              rgba(184, 224, 255, 0.05) 0%,
-              transparent 60%
-            );
-        }
-      }
-
-      /* UI 層 */
-      .ui {
-        position: relative;
-        z-index: 1;
-        min-height: 100dvh;
-        display: grid;
-        grid-template-rows: auto 1fr auto;
-        padding: 1.5rem;
-      }
-
-      /* 上段: サーバー名 + スキップ */
-      .top {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        align-items: start;
-      }
-      .server-name {
-        grid-column: 1 / -1;
-        justify-self: center;
-        margin-top: 2.5rem;
-        font-size: clamp(2.5rem, 7vw, 4.5rem);
-        letter-spacing: 0.32em;
-        color: #f5e7c4;
-        text-shadow:
-          0 0 18px rgba(245, 231, 196, 0.35),
-          0 0 40px rgba(245, 231, 196, 0.18);
-        opacity: 0;
-        filter: blur(10px);
-        animation: serverFadeIn 2.4s ease-out 0.8s forwards;
-        /* スクリーンリーダー用に保持しつつ、3D 描画があれば視覚上は隠す */
-        transition: opacity 0.6s ease-out;
-      }
-      /* 3D シーンが起動したら HTML 版は視覚的に隠す（a11y のため要素は残す） */
-      body.scene-loaded .server-name {
-        opacity: 0 !important;
-      }
-      .skip {
-        grid-column: 2;
-        grid-row: 1;
-        align-self: start;
-        font-size: 0.78rem;
-        letter-spacing: 0.18em;
-        color: rgba(245, 231, 196, 0.55);
-        text-decoration: none;
-        padding: 0.4rem 0.85rem;
-        border: 1px solid rgba(184, 149, 64, 0.3);
-        border-radius: 999px;
-        transition:
-          color 0.2s ease,
-          border-color 0.2s ease,
-          background 0.2s ease;
-      }
-      .skip:hover {
-        color: #f5e7c4;
-        border-color: rgba(184, 149, 64, 0.6);
-        background: rgba(184, 149, 64, 0.06);
-      }
-
-      /* 中央: 御札 */
-      .center {
-        align-self: end;
-        justify-self: center;
-        padding-bottom: 4rem;
-        opacity: 0;
-        animation: ofudaFadeIn 1.4s ease-out 2.2s forwards;
-      }
-
-      .ofuda-button {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 4.2rem;
-        height: 11rem;
-        background: linear-gradient(
-          180deg,
-          #f5f0e1 0%,
-          #e8e0c8 50%,
-          #d4c8a0 100%
-        );
-        border: 2px solid #c8b880;
-        border-radius: 4px;
-        cursor: pointer;
-        text-decoration: none;
-        transition: all 0.3s ease;
-        box-shadow:
-          0 4px 22px rgba(0, 0, 0, 0.6),
-          0 0 18px rgba(245, 231, 196, 0.18);
-        animation: sway 4s ease-in-out infinite;
-      }
-      /* ホバー中に点る青白い炎の輪（御札の周囲に滲む） */
-      .ofuda-button::before {
-        content: "";
-        position: absolute;
-        inset: -12px;
-        border-radius: 10px;
-        background: radial-gradient(
-          ellipse at center,
-          rgba(184, 224, 255, 0.4) 0%,
-          rgba(184, 224, 255, 0.15) 35%,
-          transparent 70%
-        );
-        opacity: 0;
-        transition: opacity 0.2s ease;
-        pointer-events: none;
-        z-index: -1;
-      }
-      .ofuda-button:hover {
-        box-shadow:
-          0 4px 22px rgba(0, 0, 0, 0.65),
-          0 0 40px rgba(184, 224, 255, 0.5),
-          0 0 100px rgba(184, 224, 255, 0.22);
-        transform: scale(1.04);
-        /* 揺れの周期を 4s → 2.6s に短縮（≒ +50% 加速） */
-        animation: swayActive 2.6s ease-in-out infinite;
-      }
-      .ofuda-button:hover::before { opacity: 1; }
-      .ofuda-button:active { transform: scale(0.98); }
-      .ofuda-text {
-        writing-mode: vertical-rl;
-        font-family: "Yuji Syuku", serif;
-        font-size: 1.5rem;
-        color: #2a1a0a;
-        letter-spacing: 0.5em;
-        user-select: none;
-      }
-
-      /* 下段: 和暦（左）+ 音量トグル（右） */
-      .bottom {
-        display: flex;
-        justify-content: space-between;
-        align-items: end;
-      }
-      .wareki {
-        font-family: "Yuji Syuku", serif;
-        font-size: 0.75rem;
-        letter-spacing: 0.18em;
-        color: rgba(245, 231, 196, 0.4);
-        text-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
-        user-select: none;
-        opacity: 0;
-        animation: warekiFadeIn 1.8s ease-out 3.6s forwards;
-      }
-      @keyframes warekiFadeIn {
-        from { opacity: 0; transform: translateY(0.3rem); }
-        to   { opacity: 1; transform: translateY(0); }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .wareki { opacity: 0.6; animation: none; }
-      }
-      .mute-toggle {
-        width: 2.8rem;
-        height: 2.8rem;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid rgba(184, 149, 64, 0.3);
-        border-radius: 50%;
-        background: rgba(10, 5, 9, 0.5);
-        color: rgba(245, 231, 196, 0.65);
-        font-family: inherit;
-        font-size: 1.05rem;
-        cursor: pointer;
-        backdrop-filter: blur(4px);
-        transition:
-          color 0.2s ease,
-          border-color 0.2s ease;
-        /* iOS Safari でタップ強調を抑える */
-        -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-      }
-      .mute-toggle:hover {
-        color: #f5e7c4;
-        border-color: rgba(184, 149, 64, 0.6);
-      }
-
-      /* くぐる演出: 霧のせり上がりとホワイトフラッシュのオーバレイ */
-      .cinematic {
-        position: fixed;
-        inset: 0;
-        z-index: 2;
-        pointer-events: none;
-        opacity: 0;
-      }
-      .cinematic.active { opacity: 1; }
-
-      .cinematic .fog-rise {
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(
-          to top,
-          rgba(184, 224, 255, 0.95) 0%,
-          rgba(184, 224, 255, 0.6) 25%,
-          rgba(184, 224, 255, 0.2) 55%,
-          transparent 80%
-        );
-        transform: translateY(110%);
-        transition: transform 2.6s cubic-bezier(0.22, 1, 0.36, 1);
-      }
-      .cinematic.fog-up .fog-rise {
-        transform: translateY(15%);
-      }
-
-      .cinematic .flash {
-        position: absolute;
-        inset: 0;
-        background: #e7eef3;
-        opacity: 0;
-        transition: opacity 0.6s ease-in;
-      }
-      .cinematic.flash-on .flash {
-        opacity: 1;
-      }
-
-      /* ボディ自体を passing 中だけ UI 不可触に */
-      body.passing .ui { pointer-events: none; }
-      body.passing .ofuda-button {
-        animation: ofudaDissolve 0.6s ease-out forwards;
-      }
-      @keyframes ofudaDissolve {
-        from { opacity: 1; transform: scale(1) rotate(0); }
-        to   { opacity: 0; transform: scale(1.4) rotate(8deg); }
-      }
-
-      @keyframes serverFadeIn {
-        from { opacity: 0; filter: blur(10px); transform: translateY(0.4rem); }
-        to   { opacity: 1; filter: blur(0); transform: translateY(0); }
-      }
-      @keyframes ofudaFadeIn {
-        from { opacity: 0; transform: translateY(1.2rem); }
-        to   { opacity: 1; transform: translateY(0); }
-      }
-      @keyframes sway {
-        0%, 100% { transform: rotate(-0.5deg); }
-        50%      { transform: rotate(0.5deg); }
-      }
-      /* ホバー時、振幅 ±0.5° → ±0.75°（+50%） */
-      @keyframes swayActive {
-        0%, 100% { transform: rotate(-0.75deg) scale(1.04); }
-        50%      { transform: rotate(0.75deg)  scale(1.04); }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .server-name,
-        .center { animation: none; opacity: 1; filter: blur(0); }
-        .ofuda-button { animation: none; }
-      }
-
-      /* タッチ専用端末: hover が無いので御札の glow を常時うっすら点ける */
-      @media (hover: none) {
-        .ofuda-button::before { opacity: 0.55; }
-      }
-
-      @media (max-width: 480px) {
-        .ofuda-button { width: 3.6rem; height: 9rem; }
-        .ofuda-text { font-size: 1.3rem; }
-        .skip { font-size: 0.72rem; padding: 0.3rem 0.7rem; }
-        .server-name { margin-top: 1.5rem; letter-spacing: 0.25em; }
-        .mute-toggle { width: 3rem; height: 3rem; font-size: 1.15rem; }
-        .ui { padding: 1rem; }
-        .center { padding-bottom: 2.5rem; }
-      }
+    <style is:global>
+      html, body { overflow: hidden; }
     </style>
   </head>
   <body>
-    <div id="scene-root" class="scene-root" aria-hidden="true"></div>
+    <Stage />
 
-    <main class="ui">
-      <div class="top">
-        <h1 class="server-name">{SERVER_NAME}</h1>
-        <a class="skip" href="/api/auth/signin/discord" data-skip>
-          結界を抜ける
-        </a>
-      </div>
-
-      <div class="center">
-        <form action="/api/auth/signin/discord" method="POST">
-          <input type="hidden" name="csrfToken" id="csrf-token" value="" />
-          <button
-            type="submit"
-            id="login-button"
-            class="ofuda-button"
-            title="Discord でログイン"
-          >
-            <span class="ofuda-text">参拝</span>
-          </button>
-        </form>
-      </div>
-
-      <div class="bottom">
-        <span class="wareki" aria-hidden="true">{wareki}</span>
-        <button
-          type="button"
-          class="mute-toggle"
-          id="mute-toggle"
-          title="音量（実装は後段）"
-          aria-label="音量切り替え"
-          aria-pressed="true"
-        >◐</button>
-      </div>
-    </main>
-
-    <!-- くぐる演出オーバレイ: 霧と白フラッシュ -->
-    <div class="cinematic" id="cinematic" aria-hidden="true">
-      <div class="fog-rise"></div>
-      <div class="flash"></div>
-    </div>
+    <!-- Stage.astro の submitAuth() がこの form を submit する -->
+    <form
+      id="auth-form"
+      action="/api/auth/signin/discord"
+      method="POST"
+      style="display:none"
+      aria-hidden="true"
+    >
+      <input type="hidden" name="csrfToken" id="csrf-token" value="" />
+    </form>
 
     <script>
-      // CSRF: スキップリンクとフォーム両方で参拝に飛ばせるよう、リンク側も
-      // CSRF 付きのフォーム POST に差し替える（簡単のため anchor を form 化）。
-      async function setupCsrf() {
+      // CSRF token を取得して hidden input に流し込む。
+      // 取得失敗時は Stage の submitAuth() フォーム送信が CSRF エラーになるが、
+      // その場合ユーザが再読み込みで救えるので致命ではない。
+      (async () => {
         try {
           const res = await fetch("/api/auth/csrf");
-          const data = await res.json();
-          const tokenInput = document.getElementById("csrf-token") as HTMLInputElement | null;
+          const data = (await res.json()) as { csrfToken?: string };
+          const tokenInput = document.getElementById(
+            "csrf-token",
+          ) as HTMLInputElement | null;
           if (tokenInput && data.csrfToken) {
             tokenInput.value = data.csrfToken;
           }
-          // スキップリンク: クリック時に hidden form を生成して POST
-          const skip = document.querySelector<HTMLAnchorElement>("a.skip[data-skip]");
-          skip?.addEventListener("click", (e) => {
-            e.preventDefault();
-            const f = document.createElement("form");
-            f.method = "POST";
-            f.action = "/api/auth/signin/discord";
-            const t = document.createElement("input");
-            t.type = "hidden";
-            t.name = "csrfToken";
-            t.value = data.csrfToken;
-            f.appendChild(t);
-            document.body.appendChild(f);
-            f.submit();
-          });
         } catch (e) {
           console.error("Failed to fetch CSRF token:", e);
         }
-      }
-      setupCsrf();
-    </script>
-
-    <script>
-      // 音量トグル + 音響マネージャ (M4d)
-      import { createAudioManager } from "../lib/audio/audio-manager";
-
-      const audio = createAudioManager();
-      const muteBtn = document.getElementById("mute-toggle") as HTMLButtonElement | null;
-
-      function applyMuteState(muted: boolean) {
-        if (!muteBtn) return;
-        muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
-        muteBtn.textContent = muted ? "◐" : "◑";
-        muteBtn.title = muted ? "音を入れる" : "音を切る";
-      }
-      applyMuteState(audio.isMuted());
-
-      muteBtn?.addEventListener("click", () => {
-        const next = !audio.isMuted();
-        audio.setMuted(next);
-        applyMuteState(next);
-      });
-
-      // 御札のホバー / クリックで SFX
-      const ofudaForSfx = document.getElementById("login-button");
-      ofudaForSfx?.addEventListener("pointerenter", () => audio.rustle(0.22));
-      ofudaForSfx?.addEventListener("focus", () => audio.rustle(0.22));
-      // クリック直前に音だけ先に鳴らす（form submit が止められるので safe）
-      ofudaForSfx?.addEventListener("pointerdown", () => {
-        audio.chime(0.4);
-        audio.rustle(0.45);
-      });
-    </script>
-
-    <script>
-      // Three.js シーン + GSAP タイムラインで くぐる演出を統合
-      import { gsap } from "gsap";
-
-      const reducedMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      const sceneRoot = document.getElementById("scene-root");
-      const ofuda = document.getElementById("login-button") as HTMLButtonElement | null;
-      const cinematic = document.getElementById("cinematic");
-      const ofudaForm = ofuda?.closest("form") as HTMLFormElement | null;
-
-      interface SceneAPI {
-        setOfudaHover: (a: boolean) => void;
-        setPassProgress: (p: number) => void;
-        triggerConfetti: () => void;
-      }
-
-      function runPassthrough(scene: SceneAPI | null) {
-        if (!ofudaForm) return;
-        if (document.body.classList.contains("passing")) return;
-        document.body.classList.add("passing");
-        cinematic?.classList.add("active");
-
-        if (reducedMotion) {
-          // 演出スキップ: すぐ submit
-          ofudaForm.submit();
-          return;
-        }
-
-        // 紙吹雪は即発射
-        scene?.triggerConfetti();
-
-        // GSAP タイムラインで以下を同期:
-        //   0.4s〜4.4s : カメラ Z を power3.out で前進
-        //   1.0s       : 霧せり上がり開始
-        //   3.5s       : 白フラッシュ開始
-        //   4.0s       : OAuth へ submit
-        const cameraState = { progress: 0 };
-        const tl = gsap.timeline({
-          defaults: { ease: "power3.out" },
-        });
-
-        if (scene) {
-          tl.to(
-            cameraState,
-            {
-              progress: 1,
-              duration: 4.0,
-              onUpdate: () => scene.setPassProgress(cameraState.progress),
-            },
-            0.4,
-          );
-        }
-        tl.call(() => cinematic?.classList.add("fog-up"), undefined, 1.0);
-        tl.call(() => cinematic?.classList.add("flash-on"), undefined, 3.5);
-        tl.call(() => ofudaForm.submit(), undefined, 4.0);
-      }
-
-      if (sceneRoot && !reducedMotion) {
-        import("../lib/scene/torii-scene").then(({ initToriiScene }) => {
-          const scene = initToriiScene(sceneRoot);
-          // HTML 「幽世」 を視覚的に隠す（3D 版に切替）
-          document.body.classList.add("scene-loaded");
-          if (ofuda) {
-            ofuda.addEventListener("pointerenter", () =>
-              scene.setOfudaHover(true),
-            );
-            ofuda.addEventListener("pointerleave", () =>
-              scene.setOfudaHover(false),
-            );
-            ofuda.addEventListener("focus", () => scene.setOfudaHover(true));
-            ofuda.addEventListener("blur", () => scene.setOfudaHover(false));
-          }
-          ofudaForm?.addEventListener("submit", (e) => {
-            e.preventDefault();
-            runPassthrough(scene);
-          });
-        });
-      } else {
-        ofudaForm?.addEventListener("submit", (e) => {
-          e.preventDefault();
-          runPassthrough(null);
-        });
-      }
+      })();
     </script>
   </body>
 </html>

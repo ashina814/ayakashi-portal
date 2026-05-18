@@ -38,9 +38,8 @@ ayakashi-portal/
 | ORM | Drizzle |
 | DB | Neon (Serverless Postgres) |
 | CSS | Tailwind CSS v3 + Astro scoped CSS |
-| 3D 描画 | Three.js + postprocessing |
-| アニメーション | GSAP + ScrollTrigger |
-| 音再生 | Howler.js |
+| ログイン演出 | 純 HTML / CSS / SVG (D 案ハイブリッド、Three.js は不採用) |
+| 音再生 | Web Audio API シンセ (プレースホルダ、本番化時 Howler.js + 素材に置換) |
 | ホスティング | Cloudflare Pages |
 | パッケージ管理 | pnpm workspace |
 
