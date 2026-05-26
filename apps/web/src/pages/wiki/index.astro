@@ -1,21 +1,21 @@
 ---
 /**
- * /wiki — ページ一覧（階層ツリー表示）
+ * /wiki — 巻物の蔵トップ（D版 IndexScreen 風）
  *
- * 公開範囲フィルタ済みの階層を取得して表示する。
- * 同じツリーが AppShell のサイドバーにも入る。
+ * Hero帯 + 統計 + 近頃の便り + 書架カードグリッド。
+ * WikiShell の TopBar に乗る。サイドバーは無し（検索モーダル ⌘K で代替）。
  */
 
-import AppShell from "../../layouts/AppShell.astro";
+import WikiShell from "../../layouts/WikiShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
 import {
   getWikiTree,
   hasWikiEditorPermission,
+  listRecentRevisions,
   type WikiTreeNode,
 } from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
-import { isAdmin } from "../../lib/auth/permissions";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
@@ -29,84 +29,330 @@ const userId =
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const tree = await getWikiTree(db, aliases);
 const canEdit = hasWikiEditorPermission(aliases);
-const userIsAdmin = isAdmin(aliases);
-
-const totalCount = countNodes(tree);
 
 function countNodes(nodes: WikiTreeNode[]): number {
   return nodes.reduce((sum, n) => sum + 1 + countNodes(n.children), 0);
 }
+const totalCount = countNodes(tree);
+
+const recent = await listRecentRevisions(db, 5).catch(() => []);
+
+// 現在の時辰（JST を 2時間きざみで十二支に）
+const HOURS = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+const jstHour = (new Date().getUTCHours() + 9 + 24) % 24;
+const currentHour = HOURS[Math.floor(((jstHour + 1) % 24) / 2)];
+
+const fmtDate = new Intl.DateTimeFormat("ja-JP", {
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const breadcrumbs = [{ title: "巻物の蔵" }];
 ---
 
-<AppShell title="巻物の蔵 — 妖ポータル" active="wiki" wikiTree={tree} isAdmin={userIsAdmin}>
-  <header class="header">
-    <div class="header-row">
-      <h1>巻物の蔵</h1>
-      {canEdit && (
-        <a class="new-btn" href="/wiki/new">＋ 新しい巻物</a>
-      )}
-    </div>
-    <p class="lede">妖たちが綴った記録。総数 {totalCount} 件。</p>
-  </header>
-
-  {tree.length === 0 ? (
-    <div class="empty">まだ何も記されていない</div>
-  ) : (
-    <section class="categories">
-      {tree.map((root) => (
-        <article class="category">
-          <h2>
-            <a href={`/wiki/${root.slug}`}>{root.title}</a>
-          </h2>
-          {root.children.length > 0 ? (
-            <ul class="child-list">
-              {root.children.map((child) => (
-                <li>
-                  <a href={`/wiki/${child.slug}`}>{child.title}</a>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p class="child-empty">（子ページなし）</p>
-          )}
-        </article>
-      ))}
-    </section>
+<WikiShell title="巻物の蔵 — 妖ポータル" breadcrumbs={breadcrumbs}>
+  {canEdit && (
+    <a slot="actions" href="/wiki/new" class="new-btn">＋ 新しい巻物</a>
   )}
-</AppShell>
+
+  <div class="page">
+    <section class="hero">
+      <div class="hero-text">
+        <h1>巻物の蔵</h1>
+        <p class="lede">
+          <strong>あやかしの集う社</strong>に伝わる名鑑と作法を集めた書架。
+          編者を経た巻物のみを公開する。
+          閲覧は誰でも、編纂は許された者のみ。
+        </p>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="k">巻</div>
+          <div class="v">{totalCount}</div>
+        </div>
+        <div class="stat">
+          <div class="k">改訂</div>
+          <div class="v">{recent.length}</div>
+        </div>
+        <div class="stat">
+          <div class="k">今宵</div>
+          <div class="v">{currentHour}</div>
+        </div>
+      </div>
+    </section>
+
+    {recent.length > 0 && (
+      <section>
+        <div class="section-h">
+          <h2>近頃の便り</h2>
+          <span class="sub">直近の改訂</span>
+          <div class="rule"></div>
+        </div>
+        <div class="recent-table">
+          {recent.map((r) => (
+            <a href={`/wiki/${r.slug}`} class="recent-row">
+              <div class="recent-date">{fmtDate.format(r.at)}</div>
+              <div class="recent-body">
+                <div class="recent-title">{r.title}</div>
+                <div class="recent-slug">{r.slug}</div>
+              </div>
+              <div class="recent-arrow">→</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <section>
+      <div class="section-h">
+        <h2>書架</h2>
+        <span class="sub">分類より</span>
+        <div class="rule"></div>
+      </div>
+
+      {tree.length === 0 ? (
+        <div class="empty">まだ何も記されていない</div>
+      ) : (
+        <div class="shelf-grid">
+          {tree.map((root) => (
+            <a class="shelf-card" href={`/wiki/${root.slug}`}>
+              <span class="shelf-count">{1 + countNodes(root.children)}</span>
+              <div class="shelf-name">{root.title}</div>
+              {root.children.length > 0 ? (
+                <ul class="shelf-children">
+                  {root.children.slice(0, 4).map((c) => (
+                    <li>{c.title}</li>
+                  ))}
+                  {root.children.length > 4 && (
+                    <li class="more">他 {root.children.length - 4} 件</li>
+                  )}
+                </ul>
+              ) : (
+                <p class="shelf-sub">（子なし）</p>
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+    </section>
+  </div>
+</WikiShell>
 
 <style>
-  .header {
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px clamp(24px, 4vw, 56px) 64px;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 2.5rem;
+    gap: 56px;
   }
-  .header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-  }
-  h1 {
-    font-size: clamp(1.6rem, 4vw, 2.2rem);
-    letter-spacing: 0.18em;
-  }
+
   .new-btn {
-    padding: 0.4rem 1rem;
+    padding: 6px 16px;
+    background: transparent;
+    color: var(--color-gold-300);
     border: 1px solid var(--color-gold-700);
-    border-radius: 999px;
-    color: var(--color-gold-100);
-    font-size: 0.88rem;
-    transition: background var(--dur-fast) var(--ease-out);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    padding-left: calc(16px + 0.25em);
+    transition: all var(--dur-fast) var(--ease-out);
   }
   .new-btn:hover {
-    background: rgba(184, 149, 64, 0.1);
+    background: rgba(184, 149, 64, 0.08);
+    color: var(--color-gold-100);
     border-color: var(--color-gold-500);
   }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--color-ink-800);
+    gap: 40px;
+  }
+  .hero h1 {
+    font-family: "Yuji Syuku", serif;
+    font-size: clamp(48px, 8vw, 84px);
+    line-height: 0.95;
+    color: var(--color-gold-100);
+    margin: 0 0 14px;
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 36px rgba(184, 224, 255, 0.18);
+  }
   .lede {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 16px;
     color: var(--text-secondary);
-    font-size: 0.95rem;
+    max-width: 520px;
+    line-height: 1.9;
+    margin: 0;
+  }
+  .lede strong { color: var(--color-gold-300); font-weight: 500; }
+
+  .stats {
+    display: flex;
+    font-family: "JetBrains Mono", monospace;
+    border: 1px solid var(--border-base);
+  }
+  .stat {
+    padding: 12px 18px;
+    border-right: 1px solid var(--border-base);
+    text-align: center;
+    min-width: 80px;
+  }
+  .stat:last-child { border-right: 0; }
+  .stat .k {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 10px;
+    letter-spacing: 0.4em;
+    color: var(--text-muted);
+  }
+  .stat .v {
+    font-family: "Yuji Syuku", serif;
+    font-size: 24px;
+    color: var(--color-gold-100);
+    margin-top: 6px;
+    letter-spacing: 0.05em;
+  }
+
+  @media (max-width: 700px) {
+    .hero { grid-template-columns: 1fr; gap: 24px; }
+    .stats { align-self: start; }
+  }
+
+  .section-h {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin: 0 0 18px;
+  }
+  .section-h h2 {
+    font-family: "Yuji Syuku", serif;
+    font-size: 22px;
+    color: var(--color-gold-100);
+    margin: 0;
+    letter-spacing: 0.06em;
+  }
+  .section-h .rule {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--color-gold-700), transparent);
+  }
+  .section-h .sub {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.3em;
+    padding-left: 0.3em;
+  }
+
+  .recent-table {
+    display: flex;
+    flex-direction: column;
+  }
+  .recent-row {
+    display: grid;
+    grid-template-columns: 70px 1fr 30px;
+    gap: 16px;
+    padding: 12px 6px;
+    border-bottom: 1px solid var(--color-ink-800);
+    align-items: center;
+    color: inherit;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .recent-row:hover { background: rgba(184, 149, 64, 0.04); }
+  .recent-date {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--color-gold-500);
+    letter-spacing: 0.1em;
+  }
+  .recent-title {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 15px;
+    color: var(--color-gold-100);
+    font-weight: 500;
+  }
+  .recent-slug {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .recent-arrow {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--color-gold-500);
+    text-align: right;
+  }
+
+  .shelf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  .shelf-card {
+    padding: 22px;
+    border: 1px solid var(--border-base);
+    background: linear-gradient(180deg, rgba(20, 9, 15, 0.3), rgba(20, 9, 15, 0.5));
+    color: inherit;
+    position: relative;
+    transition: all var(--dur-fast) var(--ease-out);
+  }
+  .shelf-card:hover {
+    border-color: var(--color-gold-700);
+    box-shadow: 0 0 20px rgba(184, 149, 64, 0.08);
+  }
+  .shelf-count {
+    position: absolute;
+    right: 18px;
+    top: 22px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--color-gold-500);
+    letter-spacing: 0.1em;
+  }
+  .shelf-count::after {
+    content: " 巻";
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 9px;
+    color: var(--text-muted);
+  }
+  .shelf-name {
+    font-family: "Yuji Syuku", serif;
+    font-size: 26px;
+    color: var(--color-gold-100);
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+  }
+  .shelf-children {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    color: var(--text-secondary);
+    letter-spacing: 0.08em;
+    line-height: 1.8;
+  }
+  .shelf-children li::before {
+    content: "・";
+    color: var(--color-gold-700);
+    margin-right: 6px;
+  }
+  .shelf-children .more {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .shelf-children .more::before { content: ""; margin: 0; }
+  .shelf-sub {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.2em;
+    margin: 0;
   }
 
   .empty {
@@ -115,60 +361,6 @@ function countNodes(nodes: WikiTreeNode[]): number {
     color: var(--text-muted);
     font-size: 0.9rem;
     border: 1px solid var(--border-base);
-    border-radius: 10px;
     background: rgba(184, 149, 64, 0.03);
-  }
-
-  .categories {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.25rem;
-  }
-
-  .category {
-    padding: 1.5rem 1.75rem;
-    border: 1px solid var(--border-base);
-    border-radius: 10px;
-    background: rgba(184, 149, 64, 0.03);
-  }
-
-  .category h2 {
-    margin: 0 0 0.85rem;
-    font-size: 1.1rem;
-    letter-spacing: 0.08em;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(184, 149, 64, 0.15);
-  }
-  .category h2 a {
-    color: var(--text-primary);
-    border: none;
-  }
-  .category h2 a:hover { color: var(--color-gold-300); }
-
-  .child-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-  .child-list li::before {
-    content: "▸";
-    color: var(--color-gold-500);
-    margin-right: 0.5rem;
-    font-size: 0.7rem;
-  }
-  .child-list a {
-    color: var(--text-secondary);
-    font-size: 0.92rem;
-    border: none;
-  }
-  .child-list a:hover { color: var(--color-gold-100); }
-
-  .child-empty {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    margin: 0;
   }
 </style>

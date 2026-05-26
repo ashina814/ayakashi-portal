@@ -1,0 +1,329 @@
+---
+/**
+ * SearchModal — ⌘K (Ctrl+K) で開く検索オーバーレイ。
+ *
+ * - キーボード: ⌘K で開閉、Esc で閉じる、↑↓ で結果移動、Enter で遷移
+ * - GET /api/wiki/search?q=... を入力ごとに叩く（300ms debounce）
+ * - 空クエリ時はサーバーが直近の閲覧可能ページを返すのでそれを表示
+ *
+ * クライアント側のみで完結。AppShell にひとつ置けば全ページで使える。
+ * <input> や <textarea> にフォーカスがある時は ⌘K の挙動を妨げない。
+ */
+---
+
+<div class="search-overlay" data-search-overlay hidden>
+  <div class="search-panel" role="dialog" aria-label="検索" aria-modal="true">
+    <div class="search-input-row">
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input
+        type="text"
+        class="search-input"
+        data-search-input
+        placeholder="幽世を辿る… 巻物の名、ひらがなも可"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <span class="search-kbd">esc</span>
+    </div>
+    <div class="search-results" data-search-results></div>
+    <div class="search-foot">
+      <span>幽世編纂局　索引</span>
+      <span class="search-keys">
+        <span><span class="search-kbd">↑↓</span> 移動</span>
+        <span><span class="search-kbd">↵</span> 開く</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script>
+  interface Result {
+    slug: string;
+    title: string;
+    updatedAt: string;
+  }
+
+  const overlay = document.querySelector<HTMLElement>("[data-search-overlay]");
+  const input = document.querySelector<HTMLInputElement>("[data-search-input]");
+  const resultsEl = document.querySelector<HTMLElement>("[data-search-results]");
+  if (!overlay || !input || !resultsEl) {
+    // SearchModal がマウントされていないページでは何もしない
+  } else {
+    let currentResults: Result[] = [];
+    let focusedIdx = 0;
+    let lastFetch = 0;
+    let debounceTimer: number | undefined;
+
+    function openModal() {
+      overlay!.hidden = false;
+      input!.value = "";
+      focusedIdx = 0;
+      requestAnimationFrame(() => input!.focus());
+      void doSearch("");
+    }
+
+    function closeModal() {
+      overlay!.hidden = true;
+    }
+
+    function render() {
+      if (currentResults.length === 0) {
+        resultsEl!.innerHTML =
+          '<div class="search-empty">霧が深い ─ 該当する巻物がありません</div>';
+        return;
+      }
+      const section = input!.value.trim()
+        ? "見つかった巻物"
+        : "近頃の巻物";
+      const rows = currentResults
+        .map(
+          (r, i) => `
+        <a class="search-row${i === focusedIdx ? " focused" : ""}"
+           href="/wiki/${encodeURIComponent(r.slug)}"
+           data-idx="${i}">
+          <span class="search-row-marker"></span>
+          <span class="search-row-body">
+            <span class="search-row-title">${escapeHtml(r.title)}</span>
+            <span class="search-row-slug">${escapeHtml(r.slug)}</span>
+          </span>
+          <span class="search-row-arrow">↵</span>
+        </a>`,
+        )
+        .join("");
+      resultsEl!.innerHTML = `
+        <div class="search-section">${section}</div>
+        ${rows}
+      `;
+    }
+
+    function escapeHtml(s: string): string {
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function doSearch(q: string) {
+      const my = ++lastFetch;
+      try {
+        const res = await fetch(
+          `/api/wiki/search?q=${encodeURIComponent(q)}`,
+          { credentials: "same-origin" },
+        );
+        if (my !== lastFetch) return; // 古いレスポンスは捨てる
+        if (!res.ok) {
+          currentResults = [];
+          render();
+          return;
+        }
+        const data = (await res.json()) as { results: Result[] };
+        currentResults = data.results;
+        focusedIdx = 0;
+        render();
+      } catch {
+        // ネットワーク失敗時は静かに無視
+      }
+    }
+
+    input.addEventListener("input", () => {
+      window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        void doSearch(input!.value);
+      }, 200);
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (currentResults.length > 0) {
+          focusedIdx = (focusedIdx + 1) % currentResults.length;
+          render();
+        }
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (currentResults.length > 0) {
+          focusedIdx =
+            (focusedIdx - 1 + currentResults.length) % currentResults.length;
+          render();
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const r = currentResults[focusedIdx];
+        if (r) window.location.assign(`/wiki/${r.slug}`);
+      }
+    });
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeModal();
+    });
+
+    window.addEventListener("keydown", (e) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (overlay!.hidden) openModal();
+        else closeModal();
+      } else if (e.key === "Escape" && !overlay!.hidden) {
+        e.preventDefault();
+        closeModal();
+      }
+    });
+
+    // 外部から開閉したい場合用のフック
+    (window as unknown as { __openWikiSearch?: () => void }).__openWikiSearch =
+      openModal;
+  }
+</script>
+
+<style>
+  .search-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(10, 5, 9, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    padding-top: 12vh;
+    animation: search-fade 0.18s ease-out both;
+  }
+  .search-overlay[hidden] { display: none; }
+  @keyframes search-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .search-panel {
+    width: 600px;
+    max-width: 92vw;
+    height: fit-content;
+    background: var(--color-ink-900);
+    border: 1px solid var(--color-gold-700);
+    border-radius: 2px;
+    box-shadow:
+      0 0 60px rgba(184, 224, 255, 0.1),
+      0 16px 48px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+    font-family: "Noto Sans JP", sans-serif;
+    animation: search-slide 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes search-slide {
+    from { transform: translateY(-12px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .search-input-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--border-base);
+  }
+  .search-icon {
+    font-family: "Yuji Syuku", serif;
+    font-size: 22px;
+    color: var(--color-gold-500);
+  }
+  .search-input {
+    flex: 1;
+    background: none;
+    border: 0;
+    outline: none;
+    color: var(--color-gold-100);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 18px;
+    letter-spacing: 0.05em;
+  }
+  .search-input::placeholder { color: var(--text-muted); }
+  .search-kbd {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 2px 6px;
+    border: 1px solid var(--border-base);
+    color: var(--text-muted);
+    border-radius: 2px;
+  }
+
+  .search-results {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .search-section {
+    padding: 8px 22px 4px;
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.4em;
+    border-bottom: 1px solid var(--color-ink-800);
+  }
+  .search-row {
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--color-ink-800);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: inherit;
+  }
+  .search-row:hover,
+  .search-row.focused {
+    background: rgba(184, 149, 64, 0.08);
+  }
+  .search-row-marker {
+    width: 4px;
+    align-self: stretch;
+    background: var(--color-gold-700);
+    opacity: 0;
+    flex: 0 0 4px;
+  }
+  .search-row:hover .search-row-marker,
+  .search-row.focused .search-row-marker {
+    opacity: 1;
+    background: var(--color-gold-500);
+  }
+  .search-row-body { flex: 1; min-width: 0; }
+  .search-row-title {
+    display: block;
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--color-gold-100);
+    letter-spacing: 0.05em;
+  }
+  .search-row-slug {
+    display: block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    margin-top: 2px;
+  }
+  .search-row-arrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--color-gold-500);
+  }
+  .search-empty {
+    padding: 36px 22px;
+    text-align: center;
+    color: var(--text-muted);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+  }
+
+  .search-foot {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 22px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--color-ink-900);
+    border-top: 1px solid var(--border-base);
+    letter-spacing: 0.1em;
+  }
+  .search-keys { display: flex; gap: 14px; }
+</style>

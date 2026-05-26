@@ -78,7 +78,7 @@ html,
 body {
   background-color: var(--bg-base);
   color: var(--text-primary);
-  font-family: "Yuji Syuku", "Shippori Mincho B1", serif;
+  font-family: "Shippori Mincho B1", "Yuji Syuku", serif;
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

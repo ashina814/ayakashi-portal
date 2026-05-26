@@ -8,19 +8,17 @@
  *   保存時に再確認する。
  */
 
-import AppShell from "../../../layouts/AppShell.astro";
+import WikiShell from "../../../layouts/WikiShell.astro";
 import WikiEditor from "../../../components/WikiEditor.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../../lib/auth/helpers";
 import {
   getPageBySlug,
   getPageVisibility,
-  getWikiTree,
   hasWikiEditorPermission,
 } from "../../../lib/repos/wiki";
 import { listRoleAliases } from "../../../lib/repos/admin";
 import { getMemberRoleAliases } from "../../../lib/repos/membership";
-import { isAdmin } from "../../../lib/auth/permissions";
 import { wikiPages } from "@ayakashi/db";
 import { eq } from "drizzle-orm";
 
@@ -44,10 +42,7 @@ if (!hasWikiEditorPermission(aliases)) {
   return Astro.rewrite("/403");
 }
 
-const [page, tree] = await Promise.all([
-  getPageBySlug(db, slug, aliases),
-  getWikiTree(db, aliases),
-]);
+const page = await getPageBySlug(db, slug, aliases);
 
 if (!page) {
   return Astro.rewrite("/404");
@@ -64,24 +59,22 @@ const [meta, visibility, knownAliases] = await Promise.all([
   getPageVisibility(db, page.id),
   listRoleAliases(db),
 ]);
-const userIsAdmin = isAdmin(aliases);
+
+const breadcrumbs = [
+  { title: "巻物の蔵", href: "/wiki" },
+  ...page.breadcrumbs.slice(0, -1).map((b) => ({
+    title: b.title,
+    href: `/wiki/${b.slug}`,
+  })),
+  { title: page.title, href: `/wiki/${page.slug}` },
+  { title: "編む" },
+];
 ---
 
-<AppShell
-  title={`編集: ${page.title} — 巻物の蔵`}
-  active="wiki"
-  wikiTree={tree}
-  activeWikiSlug={page.slug}
-  isAdmin={userIsAdmin}
->
-  <nav class="crumbs" aria-label="パンくず">
-    <a href="/wiki">巻物の蔵</a>
-    <span class="sep">›</span>
-    <a href={`/wiki/${page.slug}`}>{page.title}</a>
-    <span class="sep">›</span>
-    <span class="current">編集</span>
-  </nav>
+<WikiShell title={`編集: ${page.title} — 巻物の蔵`} breadcrumbs={breadcrumbs}>
+  <a slot="actions" href={`/wiki/${page.slug}`} class="back-btn">戻る</a>
 
+  <div class="edit-page">
   <header class="page-header">
     <h1>{page.title} を編む</h1>
     <span class="meta">
@@ -141,7 +134,8 @@ const userIsAdmin = isAdmin(aliases);
       </div>
     </form>
   </section>
-</AppShell>
+  </div>
+</WikiShell>
 
 <script>
   const form = document.querySelector<HTMLFormElement>("#vis-form");
@@ -177,6 +171,25 @@ const userIsAdmin = isAdmin(aliases);
 </script>
 
 <style>
+  .edit-page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px clamp(20px, 4vw, 48px) 64px;
+  }
+  .back-btn {
+    padding: 6px 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--color-ink-600);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    padding-left: calc(16px + 0.2em);
+  }
+  .back-btn:hover {
+    color: var(--color-gold-300);
+    border-color: var(--color-gold-700);
+  }
   .crumbs {
     display: flex;
     flex-wrap: wrap;

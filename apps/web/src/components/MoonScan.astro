@@ -1,0 +1,46 @@
+---
+/**
+ * MoonScan — 月光が縦に通る装飾オーバーレイ。
+ *
+ * 画面全体に薄いビームが約 38 秒で上→下へ流れる。
+ * `prefers-reduced-motion: reduce` 環境では停止。
+ * pointer-events なしで、純粋に視覚効果のみ。
+ */
+---
+
+<div class="moon-scan" aria-hidden="true">
+  <div class="moon-beam"></div>
+</div>
+
+<style>
+  .moon-scan {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    overflow: hidden;
+  }
+  .moon-beam {
+    position: absolute;
+    left: -10%;
+    right: -10%;
+    top: -10%;
+    height: 4%;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      rgba(184, 224, 255, 0.07) 50%,
+      transparent
+    );
+    filter: blur(20px);
+    animation: moon-scan 38s linear infinite;
+    mix-blend-mode: screen;
+  }
+  @keyframes moon-scan {
+    from { transform: translateY(0); }
+    to { transform: translateY(2800%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .moon-beam { animation: none; opacity: 0; }
+  }
+</style>

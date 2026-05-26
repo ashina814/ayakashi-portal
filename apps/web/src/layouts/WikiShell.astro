@@ -1,0 +1,75 @@
+---
+/**
+ * WikiShell — Wiki 配下 (/wiki/*) 用の共通レイアウト。
+ *
+ * AppShell の左サイドバーは持たず、固定上部 TopBar + フルワイドの本文 slot。
+ * MoonScan, SearchModal, TweaksPanel を内包。
+ *
+ * Props:
+ *   title       : <title>
+ *   breadcrumbs : TopBar に表示するパンくず（末尾の href 無しが現在位置）
+ *
+ * named slot:
+ *   "actions"   : TopBar 右寄せに任意のボタン (己を記す, 奉る, ＋新しい巻物 など)
+ */
+
+import "../styles/global.css";
+import MoonScan from "../components/MoonScan.astro";
+import SearchModal from "../components/SearchModal.astro";
+import TopBar from "../components/TopBar.astro";
+import TweaksPanel from "../components/TweaksPanel.astro";
+
+interface Crumb {
+  title: string;
+  href?: string;
+}
+
+interface Props {
+  title: string;
+  breadcrumbs?: Crumb[];
+}
+
+const { title, breadcrumbs = [] } = Astro.props;
+
+const session = Astro.locals.session;
+const user = session?.user as { name?: string } | undefined;
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Shippori+Mincho+B1:wght@400;500;700&family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+  </head>
+  <body>
+    <MoonScan />
+    <SearchModal />
+    <TopBar breadcrumbs={breadcrumbs} userName={user?.name}>
+      <slot name="actions" slot="actions" />
+    </TopBar>
+    <main class="wiki-main">
+      <slot />
+    </main>
+    <TweaksPanel />
+
+    <style>
+      body {
+        background-color: var(--bg-base);
+        color: var(--text-primary);
+        min-height: 100dvh;
+      }
+      .wiki-main {
+        position: relative;
+        z-index: 10;
+        min-height: calc(100dvh - 56px);
+      }
+    </style>
+  </body>
+</html>

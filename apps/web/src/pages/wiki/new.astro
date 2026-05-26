@@ -7,7 +7,7 @@
  * ツールバー・ヘルプは WikiEditor.astro と共通の設定（editor-toolbar.ts）。
  */
 
-import AppShell from "../../layouts/AppShell.astro";
+import WikiShell from "../../layouts/WikiShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../../lib/auth/helpers";
 import {
@@ -16,7 +16,6 @@ import {
   type WikiTreeNode,
 } from "../../lib/repos/wiki";
 import { getMemberRoleAliases } from "../../lib/repos/membership";
-import { isAdmin } from "../../lib/auth/permissions";
 import {
   TOOLBAR_GROUPS,
   SHORTCUT_HINTS,
@@ -38,7 +37,6 @@ if (!hasWikiEditorPermission(aliases)) {
 }
 
 const tree = await getWikiTree(db, aliases);
-const userIsAdmin = isAdmin(aliases);
 
 function flatten(nodes: WikiTreeNode[], depth = 0): { slug: string; label: string }[] {
   return nodes.flatMap((n) => [
@@ -49,20 +47,16 @@ function flatten(nodes: WikiTreeNode[], depth = 0): { slug: string; label: strin
 const parentOptions = flatten(tree);
 
 const presetParent = Astro.url.searchParams.get("parent") ?? "";
+
+const breadcrumbs = [
+  { title: "巻物の蔵", href: "/wiki" },
+  { title: "新規作成" },
+];
 ---
 
-<AppShell
-  title="新しい巻物 — 巻物の蔵"
-  active="wiki"
-  wikiTree={tree}
-  isAdmin={userIsAdmin}
->
-  <nav class="crumbs" aria-label="パンくず">
-    <a href="/wiki">巻物の蔵</a>
-    <span class="sep">›</span>
-    <span class="current">新規作成</span>
-  </nav>
-
+<WikiShell title="新しい巻物 — 巻物の蔵" breadcrumbs={breadcrumbs}>
+  <a slot="actions" href="/wiki" class="back-btn">戻る</a>
+  <div class="new-page">
   <header class="page-header">
     <h1>新しい巻物を編む</h1>
   </header>
@@ -168,7 +162,8 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
       </section>
     </dialog>
   </div>
-</AppShell>
+  </div>
+</WikiShell>
 
 <script>
   import { Editor } from "@tiptap/core";
@@ -231,6 +226,25 @@ const presetParent = Astro.url.searchParams.get("parent") ?? "";
 </script>
 
 <style>
+  .new-page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px clamp(20px, 4vw, 48px) 64px;
+  }
+  .back-btn {
+    padding: 6px 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--color-ink-600);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    padding-left: calc(16px + 0.2em);
+  }
+  .back-btn:hover {
+    color: var(--color-gold-300);
+    border-color: var(--color-gold-700);
+  }
   .crumbs {
     display: flex;
     flex-wrap: wrap;

@@ -1,0 +1,486 @@
+---
+/**
+ * TweaksPanel — Wiki 読み心地の調律パネル。
+ *
+ * 右下にフローティング表示。閉じている時はトグルボタンだけ。
+ * 設定は localStorage 'wiki-tweaks' に JSON で永続化し、
+ * documentElement の data-* 属性として反映する。
+ *
+ *   data-density      : tight | regular | comfy
+ *   data-numbering    : kanji | arabic | none
+ *   data-atmosphere   : 1 | 0
+ *   style: --wiki-fs  : 14..20px
+ *
+ * 記事ページの CSS がこれらを参照して見た目を変える。
+ * SSR と client の初期 flicker を避けるため、設定読み込みはインラインで即時実行する。
+ */
+---
+
+<script is:inline>
+  (function () {
+    try {
+      const raw = localStorage.getItem("wiki-tweaks");
+      const defaults = {
+        density: "regular",
+        fontSize: 16,
+        numbering: "kanji",
+        atmosphere: true,
+      };
+      const t = raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
+      const html = document.documentElement;
+      html.dataset.density = t.density;
+      html.dataset.numbering = t.numbering;
+      html.dataset.atmosphere = t.atmosphere ? "1" : "0";
+      html.style.setProperty("--wiki-fs", `${t.fontSize}px`);
+    } catch (e) {
+      // localStorage 不可環境では既定のまま
+    }
+  })();
+</script>
+
+<button
+  type="button"
+  class="tweaks-toggle"
+  data-tweaks-toggle
+  aria-label="調律パネルを開く"
+  title="調律"
+>調律</button>
+
+<aside class="tweaks-panel" data-tweaks-panel hidden aria-label="調律">
+  <div class="tweaks-hd">
+    <span class="tweaks-eyebrow">TUNING</span>
+    <span class="tweaks-title">調　律</span>
+    <button type="button" class="tweaks-close" data-tweaks-close aria-label="閉じる">×</button>
+  </div>
+
+  <div class="tweaks-body">
+    <div class="tweaks-sect">読みやすさ</div>
+
+    <div class="tweaks-row">
+      <div class="tweaks-lbl">
+        <span>密度</span>
+      </div>
+      <div class="tweaks-seg" role="radiogroup" data-key="density">
+        <button type="button" role="radio" data-value="tight">詰める</button>
+        <button type="button" role="radio" data-value="regular">普通</button>
+        <button type="button" role="radio" data-value="comfy">広め</button>
+      </div>
+    </div>
+
+    <div class="tweaks-row">
+      <div class="tweaks-lbl">
+        <span>本文サイズ</span>
+        <span class="tweaks-val" data-fs-val>16px</span>
+      </div>
+      <input
+        type="range"
+        class="tweaks-slider"
+        min="14"
+        max="20"
+        step="1"
+        data-fs-input
+      />
+    </div>
+
+    <div class="tweaks-sect">意匠</div>
+
+    <div class="tweaks-row">
+      <div class="tweaks-lbl">
+        <span>章番号</span>
+      </div>
+      <div class="tweaks-seg" role="radiogroup" data-key="numbering">
+        <button type="button" role="radio" data-value="kanji">漢数字</button>
+        <button type="button" role="radio" data-value="arabic">算用</button>
+        <button type="button" role="radio" data-value="none">なし</button>
+      </div>
+    </div>
+
+    <div class="tweaks-row tweaks-row-h">
+      <div class="tweaks-lbl"><span>気配（月光）</span></div>
+      <button type="button" class="tweaks-toggle-sw" data-atm-toggle role="switch" aria-checked="true">
+        <i></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="tweaks-foot">幽世編纂局　調律之巻</div>
+</aside>
+
+<script>
+  type Tweaks = {
+    density: "tight" | "regular" | "comfy";
+    fontSize: number;
+    numbering: "kanji" | "arabic" | "none";
+    atmosphere: boolean;
+  };
+
+  const DEFAULTS: Tweaks = {
+    density: "regular",
+    fontSize: 16,
+    numbering: "kanji",
+    atmosphere: true,
+  };
+
+  function load(): Tweaks {
+    try {
+      const raw = localStorage.getItem("wiki-tweaks");
+      if (!raw) return DEFAULTS;
+      return { ...DEFAULTS, ...JSON.parse(raw) };
+    } catch {
+      return DEFAULTS;
+    }
+  }
+
+  function save(t: Tweaks) {
+    try {
+      localStorage.setItem("wiki-tweaks", JSON.stringify(t));
+    } catch {
+      // 失敗しても続行
+    }
+  }
+
+  function apply(t: Tweaks) {
+    const html = document.documentElement;
+    html.dataset.density = t.density;
+    html.dataset.numbering = t.numbering;
+    html.dataset.atmosphere = t.atmosphere ? "1" : "0";
+    html.style.setProperty("--wiki-fs", `${t.fontSize}px`);
+    // MoonScan の表示/非表示
+    const moon = document.querySelector<HTMLElement>(".moon-scan");
+    if (moon) moon.style.display = t.atmosphere ? "" : "none";
+  }
+
+  function reflectUI(t: Tweaks) {
+    // セグメント
+    document.querySelectorAll<HTMLElement>("[data-key]").forEach((group) => {
+      const key = group.dataset.key as keyof Tweaks;
+      const cur = String(t[key]);
+      group.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+        btn.setAttribute(
+          "aria-checked",
+          btn.dataset.value === cur ? "true" : "false",
+        );
+      });
+    });
+    // フォントサイズ
+    const slider = document.querySelector<HTMLInputElement>("[data-fs-input]");
+    const val = document.querySelector<HTMLElement>("[data-fs-val]");
+    if (slider) slider.value = String(t.fontSize);
+    if (val) val.textContent = `${t.fontSize}px`;
+    // 気配トグル
+    const atm = document.querySelector<HTMLButtonElement>("[data-atm-toggle]");
+    if (atm) atm.setAttribute("aria-checked", t.atmosphere ? "true" : "false");
+  }
+
+  const panel = document.querySelector<HTMLElement>("[data-tweaks-panel]");
+  const toggleBtn = document.querySelector<HTMLButtonElement>("[data-tweaks-toggle]");
+  const closeBtn = document.querySelector<HTMLButtonElement>("[data-tweaks-close]");
+
+  if (panel && toggleBtn && closeBtn) {
+    let state = load();
+    apply(state);
+    reflectUI(state);
+
+    function update(partial: Partial<Tweaks>) {
+      state = { ...state, ...partial };
+      apply(state);
+      reflectUI(state);
+      save(state);
+    }
+
+    toggleBtn.addEventListener("click", () => {
+      panel!.hidden = false;
+    });
+    closeBtn.addEventListener("click", () => {
+      panel!.hidden = true;
+    });
+
+    // セグメント (density / numbering)
+    document.querySelectorAll<HTMLElement>("[data-key]").forEach((group) => {
+      const key = group.dataset.key as keyof Tweaks;
+      group.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(
+          "button[data-value]",
+        );
+        if (!btn) return;
+        update({ [key]: btn.dataset.value } as Partial<Tweaks>);
+      });
+    });
+
+    // フォントサイズ
+    const slider = document.querySelector<HTMLInputElement>("[data-fs-input]");
+    slider?.addEventListener("input", () => {
+      update({ fontSize: Number(slider.value) });
+    });
+
+    // 気配
+    const atm = document.querySelector<HTMLButtonElement>("[data-atm-toggle]");
+    atm?.addEventListener("click", () => {
+      update({ atmosphere: !state.atmosphere });
+    });
+  }
+</script>
+
+<style>
+  .tweaks-toggle {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 80;
+    width: 48px;
+    height: 48px;
+    background: rgba(20, 9, 15, 0.78);
+    color: var(--color-gold-300);
+    border: 1px solid var(--color-gold-700);
+    border-radius: 50%;
+    font-family: "Yuji Syuku", serif;
+    font-size: 16px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+    transition: color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .tweaks-toggle:hover {
+    color: var(--color-gold-100);
+    border-color: var(--color-gold-500);
+  }
+
+  .tweaks-panel {
+    position: fixed;
+    right: 16px;
+    bottom: 76px;
+    z-index: 81;
+    width: 300px;
+    max-height: calc(100vh - 100px);
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(
+      180deg,
+      rgba(20, 9, 15, 0.86),
+      rgba(10, 5, 9, 0.88)
+    );
+    color: var(--text-secondary);
+    border: 1px solid var(--color-ink-700);
+    box-shadow:
+      0 0 36px rgba(184, 224, 255, 0.06),
+      0 18px 56px rgba(0, 0, 0, 0.75);
+    -webkit-backdrop-filter: blur(28px) saturate(120%);
+    backdrop-filter: blur(28px) saturate(120%);
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    overflow: hidden;
+  }
+  .tweaks-panel[hidden] { display: none; }
+  .tweaks-panel::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(184, 149, 64, 0.55) 50%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  .tweaks-hd {
+    display: flex;
+    align-items: center;
+    padding: 18px 14px 14px 22px;
+    border-bottom: 1px solid var(--color-ink-800);
+    gap: 14px;
+  }
+  .tweaks-eyebrow {
+    font-family: "Noto Sans JP", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.5em;
+    padding-left: 0.5em;
+    color: var(--color-gold-700);
+    align-self: flex-start;
+  }
+  .tweaks-title {
+    flex: 1;
+    font-family: "Yuji Syuku", serif;
+    font-size: 22px;
+    letter-spacing: 0.15em;
+    padding-left: 0.15em;
+    color: var(--color-gold-100);
+    text-shadow: 0 0 16px rgba(184, 224, 255, 0.18);
+    line-height: 1;
+    margin-left: -10px;
+  }
+  .tweaks-close {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--color-ink-700);
+    font-family: "Yuji Syuku", serif;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .tweaks-close:hover {
+    border-color: var(--color-gold-700);
+    color: var(--color-gold-300);
+  }
+
+  .tweaks-body {
+    padding: 4px 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .tweaks-sect {
+    font-family: "Yuji Syuku", serif;
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    padding-left: 0.3em;
+    color: var(--color-gold-100);
+    padding-top: 14px;
+    margin-top: 4px;
+    border-top: 1px solid var(--color-ink-800);
+  }
+  .tweaks-sect:first-child {
+    padding-top: 8px;
+    margin-top: 0;
+    border-top: none;
+  }
+
+  .tweaks-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .tweaks-row-h {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .tweaks-lbl {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    color: var(--text-secondary);
+    letter-spacing: 0.14em;
+    font-size: 12.5px;
+  }
+  .tweaks-lbl > span:first-child {
+    font-weight: 500;
+    color: var(--color-gold-100);
+  }
+  .tweaks-val {
+    color: var(--color-gold-300);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  .tweaks-slider {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 1px;
+    background: var(--color-ink-700);
+    outline: none;
+    margin: 8px 0 4px;
+  }
+  .tweaks-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    background: var(--color-gold-300);
+    border: 1px solid var(--color-ink-900);
+    box-shadow: 0 0 10px rgba(184, 224, 255, 0.4),
+      0 0 0 2px var(--color-ink-950);
+    cursor: pointer;
+  }
+  .tweaks-slider::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    background: var(--color-gold-300);
+    border: 1px solid var(--color-ink-900);
+    box-shadow: 0 0 10px rgba(184, 224, 255, 0.4),
+      0 0 0 2px var(--color-ink-950);
+    cursor: pointer;
+  }
+
+  .tweaks-seg {
+    display: flex;
+    background: rgba(10, 5, 9, 0.55);
+    border: 1px solid var(--color-ink-700);
+    padding: 3px;
+    gap: 0;
+  }
+  .tweaks-seg button {
+    flex: 1;
+    background: transparent;
+    color: var(--text-muted);
+    border: 0;
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    padding: 4px 6px;
+    cursor: pointer;
+    min-height: 24px;
+    transition: color var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
+  }
+  .tweaks-seg button:hover { color: var(--color-gold-300); }
+  .tweaks-seg button[aria-checked="true"] {
+    color: var(--color-gold-100);
+    background: var(--color-ink-800);
+    box-shadow: inset 0 0 0 1px var(--color-gold-500);
+  }
+
+  .tweaks-toggle-sw {
+    position: relative;
+    width: 32px;
+    height: 16px;
+    background: rgba(10, 5, 9, 0.6);
+    border: 1px solid var(--color-ink-700);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .tweaks-toggle-sw[aria-checked="true"] {
+    background: rgba(184, 149, 64, 0.18);
+    border-color: var(--color-gold-700);
+    box-shadow: 0 0 14px rgba(184, 224, 255, 0.22),
+      inset 0 0 6px rgba(184, 149, 64, 0.2);
+  }
+  .tweaks-toggle-sw i {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .tweaks-toggle-sw[aria-checked="true"] i {
+    background: var(--color-gold-300);
+    transform: translateX(14px);
+    box-shadow: 0 0 8px rgba(184, 224, 255, 0.55);
+  }
+
+  .tweaks-foot {
+    padding: 12px 22px 14px;
+    border-top: 1px solid var(--color-ink-800);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.45em;
+    padding-left: calc(22px + 0.45em);
+    text-align: center;
+  }
+</style>
