@@ -92,6 +92,7 @@ const breadcrumbs = [
     <div class="we-toolbar" role="toolbar" aria-label="編集ツール">
       {TOOLBAR_GROUPS.map((group) => (
         <div class="we-group" aria-label={group.name}>
+          <span class="we-glabel">{group.name}</span>
           {group.items.map((item) => (
             <button
               type="button"
@@ -99,8 +100,10 @@ const breadcrumbs = [
               title={item.title}
               data-cmd={item.cmd}
               data-insert={item.insert}
+              style={item.color ? `--swatch:${item.color}` : undefined}
             >
-              {item.label}
+              {item.color && <span class="we-swatch" aria-hidden="true"></span>}
+              <span class="we-btn-label">{item.label}</span>
             </button>
           ))}
         </div>
@@ -332,21 +335,41 @@ const breadcrumbs = [
     display: flex;
     flex-wrap: wrap;
     gap: 0.2rem;
-    padding-right: 0.5rem;
+    align-items: center;
+    padding: 0 0.5rem 0 0.4rem;
     border-right: 1px solid rgba(184, 149, 64, 0.15);
   }
   .we-group:last-of-type { border-right: none; }
   .we-spacer { flex: 1; }
+  .we-glabel {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 0.66rem;
+    letter-spacing: 0.3em;
+    padding-left: 0.3em;
+    color: var(--text-muted);
+    margin-right: 0.5rem;
+  }
   .we-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid transparent;
     border-radius: 4px;
     padding: 0.3rem 0.65rem;
-    font-family: inherit;
+    font-family: "Shippori Mincho B1", serif;
     font-size: 0.82rem;
     cursor: pointer;
     white-space: nowrap;
+  }
+  .we-swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+    background: var(--swatch, transparent);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
   }
   .we-btn:hover {
     background: rgba(184, 149, 64, 0.08);

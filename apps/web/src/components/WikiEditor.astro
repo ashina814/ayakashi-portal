@@ -42,6 +42,7 @@ const {
   <div class="we-toolbar" role="toolbar" aria-label="編集ツール">
     {TOOLBAR_GROUPS.map((group) => (
       <div class="we-group" aria-label={group.name}>
+        <span class="we-glabel">{group.name}</span>
         {group.items.map((item) => (
           <button
             type="button"
@@ -49,8 +50,10 @@ const {
             title={item.title}
             data-cmd={item.cmd}
             data-insert={item.insert}
+            style={item.color ? `--swatch:${item.color}` : undefined}
           >
-            {item.label}
+            {item.color && <span class="we-swatch" aria-hidden="true"></span>}
+            <span class="we-btn-label">{item.label}</span>
           </button>
         ))}
       </div>
@@ -255,19 +258,34 @@ const {
     flex-wrap: wrap;
     gap: 0.2rem;
     align-items: center;
-    padding-right: 0.5rem;
+    padding-right: 0.65rem;
+    padding-left: 0.4rem;
     border-right: 1px solid rgba(184, 149, 64, 0.15);
   }
   .we-group:last-of-type { border-right: none; }
   .we-spacer { flex: 1; min-width: 0; }
 
+  /* グループラベル — D版風の縦書きラベル */
+  .we-glabel {
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 0.66rem;
+    letter-spacing: 0.3em;
+    padding-left: 0.3em;
+    color: var(--text-muted);
+    margin-right: 0.5rem;
+    align-self: center;
+  }
+
   .we-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid transparent;
     border-radius: 4px;
     padding: 0.3rem 0.65rem;
-    font-family: inherit;
+    font-family: "Shippori Mincho B1", serif;
     font-size: 0.82rem;
     cursor: pointer;
     line-height: 1.2;
@@ -275,6 +293,17 @@ const {
     transition: background var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out),
       border-color var(--dur-fast) var(--ease-out);
+  }
+
+  /* 色見本ドット — callout/chip 系の識別補助 */
+  .we-swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+    background: var(--swatch, transparent);
+    flex: 0 0 auto;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
   }
   .we-btn:hover {
     background: rgba(184, 149, 64, 0.08);

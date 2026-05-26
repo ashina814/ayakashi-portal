@@ -82,6 +82,14 @@ const breadcrumbs = [
       ) : (
         <div class="art-empty">（まだ本文が書かれていない）</div>
       )}
+
+      <footer class="art-foot">
+        <div class="stamps" aria-hidden="true">
+          <span class="stamp">幽</span>
+          <span class="stamp s2">編</span>
+        </div>
+        <span class="art-foot-text">奉　幽世編纂局　査読済</span>
+      </footer>
     </article>
 
     {page.toc.length > 0 && (
@@ -454,6 +462,42 @@ const breadcrumbs = [
     padding: 2rem;
     border: 1px dashed var(--border-base);
     text-align: center;
+  }
+
+  /* ── 落款 ── */
+  .art-foot {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-ink-800);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: "Shippori Mincho B1", serif;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.2em;
+  }
+  .stamps { display: flex; gap: 8px; align-items: center; }
+  .stamp {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    font-family: "Yuji Syuku", serif;
+    font-size: 14px;
+    background: var(--color-crimson-500);
+    color: var(--color-gold-100);
+    opacity: 0.85;
+    transform: rotate(-2deg);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+  }
+  .stamp.s2 {
+    background: var(--color-gold-500);
+    color: var(--color-ink-900);
+    transform: rotate(2deg);
+  }
+  .art-foot-text {
+    letter-spacing: 0.3em;
   }
 
   .toc-pane {

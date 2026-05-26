@@ -33,6 +33,8 @@ export interface ToolbarItem {
   label: string;
   /** hover で出す説明（ショートカット込み） */
   title: string;
+  /** 色見本ドットを描く際の色（callout / chip 系のみ） */
+  color?: string;
 }
 
 export interface ToolbarGroup {
@@ -73,20 +75,20 @@ export const TOOLBAR_GROUPS: ToolbarGroup[] = [
   {
     name: "注意札",
     items: [
-      { insert: "callout:note", label: "📓 覚書", title: "覚書（落ち着いた色味、補足情報）" },
-      { insert: "callout:info", label: "ℹ 情報", title: "情報（青白い炎の色）" },
-      { insert: "callout:warning", label: "⚠ 注意", title: "注意（金色、気を付けてほしいこと）" },
-      { insert: "callout:danger", label: "🚫 危険", title: "危険（紅色、強い警告）" },
-      { insert: "callout:success", label: "✓ 成功", title: "成功（苔色、良い知らせ）" },
+      { insert: "callout:note", label: "📓 覚書", title: "覚書（落ち着いた色味、補足情報）", color: "#5c5340" },
+      { insert: "callout:info", label: "ℹ 情報", title: "情報（青白い炎の色）", color: "#3d5566" },
+      { insert: "callout:warning", label: "⚠ 注意", title: "注意（金色、気を付けてほしいこと）", color: "#b89540" },
+      { insert: "callout:danger", label: "🚫 危険", title: "危険（紅色、強い警告）", color: "#c1283a" },
+      { insert: "callout:success", label: "✓ 成功", title: "成功（苔色、良い知らせ）", color: "#6b8a4e" },
       { insert: "toggle", label: "▶ 折りたたみ", title: "クリックで開閉する折りたたみブロック" },
     ],
   },
   {
     name: "印章",
     items: [
-      { insert: "chip:ok", label: "○ 許可", title: "○ 許可・可" },
-      { insert: "chip:ng", label: "× 禁止", title: "× 禁止・不可" },
-      { insert: "chip:warn", label: "△ 条件", title: "△ 条件付き" },
+      { insert: "chip:ok", label: "○ 許可", title: "○ 許可・可", color: "#6b8a4e" },
+      { insert: "chip:ng", label: "× 禁止", title: "× 禁止・不可", color: "#c1283a" },
+      { insert: "chip:warn", label: "△ 条件", title: "△ 条件付き", color: "#b89540" },
     ],
   },
 ];
