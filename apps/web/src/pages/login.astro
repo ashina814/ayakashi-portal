@@ -1,9 +1,9 @@
 ---
 /**
- * ログイン画面 (D 案ハイブリッド)
+ * ログイン画面 (LUXEL — 星の幻想ファンタジー)
  *
- * - Three.js 路線は廃止 (prototypes/HANDOFF.md §1)
- * - 純 HTML / CSS / SVG の Stage.astro を 1 枚マウント
+ * - 旧 D案 (幽世/参拝) から差し替え。docs/login-handoff/ 参照
+ * - 純 HTML / CSS / SVG + Web Audio の Stage.astro を 1 枚マウント
  * - 認証は Auth.js の Discord プロバイダに POST (CSRF token 必須)
  */
 import Stage from "../components/login/Stage.astro";
@@ -19,12 +19,12 @@ if (Astro.locals.session) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>参拝 — 幽世</title>
+    <title>LUXEL — Sign in</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Shippori+Mincho+B1:wght@400;500;700&family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap"
     />
     <style is:global>
       html, body { overflow: hidden; }
