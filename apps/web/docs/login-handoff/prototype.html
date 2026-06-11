@@ -1,0 +1,1348 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ログイン画面 — ハイブリッド (D)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Shippori+Mincho+B1:wght@400;500;700&family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink-950: #0a0509;
+        --ink-900: #14090f;
+        --ink-800: #1f1219;
+        --ink-700: #2a1c25;
+        --ink-600: #3a2733;
+        --mist-100: #e7eef3;
+        --mist-300: #b8cad8;
+        --mist-500: #6f8fa6;
+        --mist-glow: #b8e0ff;
+        --vermilion-500: #b04438;
+        --crimson-500: #c1283a;
+        --gold-100: #f5e7c4;
+        --gold-300: #e0c684;
+        --gold-500: #b89540;
+        --gold-700: #8a6d24;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: var(--ink-950);
+        color: var(--gold-100);
+        font-family: "Noto Sans JP", sans-serif;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ─────── stage: cinematic forward push on click ─────── */
+      .stage {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        transform-origin: 50% 60%;
+        transition: transform 5s cubic-bezier(0.22, 1, 0.36, 1),
+                    filter 5s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .stage.is-entering {
+        transform: scale(1.05);
+        filter: brightness(0.85);
+      }
+
+      /* ─────── background washes ─────── */
+      .bg-base {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 60% 50% at 50% 0%,
+            rgba(184, 224, 255, 0.13) 0%,
+            transparent 60%),
+          radial-gradient(ellipse 80% 40% at 50% 100%,
+            rgba(176, 68, 56, 0.10) 0%,
+            transparent 70%);
+      }
+
+      /* film grain via SVG noise */
+      .grain {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.08;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+      }
+
+      /* ─────── world: giant kanji ─────── */
+      .world-kanji {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: transform;
+      }
+      .world-kanji span {
+        font-family: "Yuji Syuku", serif;
+        font-size: clamp(420px, 70vh, 760px);
+        line-height: 0.9;
+        color: transparent;
+        background: linear-gradient(180deg,
+          rgba(245, 231, 196, 0.18) 0%,
+          rgba(184, 149, 64, 0.24) 40%,
+          rgba(138, 109, 36, 0.06) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        user-select: none;
+        margin-top: -2vh;
+        animation: kanjiBreath 12s ease-in-out infinite, kanjiBleed 7s ease-in-out infinite;
+      }
+      /* breath: opacity + glow pulse */
+      @keyframes kanjiBreath {
+        0%, 100% { opacity: 0.95; }
+        50% { opacity: 1; }
+      }
+      /* ink bleed: subtle blur + glow drift (different period for organic feel) */
+      @keyframes kanjiBleed {
+        0%, 100% { filter: drop-shadow(0 0 50px rgba(184, 224, 255, 0.10)) blur(0.6px); }
+        33%      { filter: drop-shadow(0 0 80px rgba(184, 224, 255, 0.16)) blur(1.4px); }
+        66%      { filter: drop-shadow(0 0 65px rgba(184, 149, 64, 0.12)) blur(0.9px); }
+      }
+
+      /* ─────── fog bands ─────── */
+      .fog {
+        position: absolute;
+        left: -10%;
+        right: -10%;
+        bottom: 0;
+        height: 50%;
+        pointer-events: none;
+        background:
+          linear-gradient(180deg,
+            transparent 0%,
+            rgba(184, 224, 255, 0.05) 30%,
+            rgba(184, 224, 255, 0.09) 70%,
+            transparent 100%);
+        filter: blur(4px);
+        animation: fogDrift 24s ease-in-out infinite alternate;
+        transition: transform 1s cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: transform;
+      }
+      .fog.fog-2 {
+        height: 30%;
+        background: linear-gradient(180deg, transparent, rgba(10, 5, 9, 0.65));
+        filter: none;
+        animation: none;
+      }
+      @keyframes fogDrift {
+        from { transform: translateX(-2%); }
+        to   { transform: translateX(2%); }
+      }
+
+      /* ─────── header: server name ─────── */
+      .header {
+        position: absolute;
+        top: 64px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        animation: headerIn 2s 1.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .header .rule {
+        width: 80px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--gold-500) 50%, transparent);
+      }
+      .header h1 {
+        margin: 0;
+        font-family: "Yuji Syuku", serif;
+        font-size: 44px;
+        font-weight: 400;
+        letter-spacing: 0.6em;
+        padding-left: 0.6em;
+        color: var(--gold-100);
+        text-shadow: 0 0 28px rgba(184, 224, 255, 0.4);
+      }
+      .header .sub {
+        font-family: "Shippori Mincho B1", serif;
+        font-size: 11px;
+        letter-spacing: 0.5em;
+        padding-left: 0.5em;
+        color: var(--mist-500);
+      }
+      @keyframes headerIn {
+        from { opacity: 0; filter: blur(10px); transform: translate(-50%, -8px); }
+        to   { opacity: 1; filter: blur(0);    transform: translate(-50%, 0); }
+      }
+
+      /* ─────── foxfire particles ─────── */
+      .foxfire {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--mist-glow);
+        box-shadow: 0 0 18px 3px rgba(184, 224, 255, 0.55);
+        pointer-events: none;
+        opacity: 0;
+        animation: foxRise var(--dur, 7s) ease-in-out var(--delay, 0s) infinite;
+      }
+      @keyframes foxRise {
+        0%   { opacity: 0; transform: translate(0, 0) scale(0.7); }
+        15%  { opacity: 1; }
+        50%  { transform: translate(var(--sway, 20px), -40px) scale(1); }
+        85%  { opacity: 0.7; }
+        100% { opacity: 0; transform: translate(calc(var(--sway, 20px) * -1), -120px) scale(0.5); }
+      }
+
+      /* ─────── ofuda (CTA) ─────── */
+      .ofuda-wrap {
+        position: absolute;
+        bottom: 7%;
+        left: 50%;
+        transform: translateX(-50%);
+        animation: ofudaIn 2s 2.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      @keyframes ofudaIn {
+        from { opacity: 0; transform: translate(-50%, 40px); }
+        to   { opacity: 1; transform: translate(-50%, 0); }
+      }
+
+      .ofuda {
+        position: relative;
+        width: 110px;
+        height: 320px;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        animation: ofudaSway 4s ease-in-out infinite;
+        transform-origin: 50% 0%;
+        transition: filter 0.3s ease-out;
+        filter: drop-shadow(0 0 20px rgba(184, 224, 255, 0.18));
+      }
+      @keyframes ofudaSway {
+        0%, 100% { transform: rotate(-1.5deg); }
+        50%      { transform: rotate(1.5deg); }
+      }
+      .ofuda:hover {
+        animation-duration: 2.5s;
+        filter: drop-shadow(0 0 32px rgba(184, 224, 255, 0.45))
+                drop-shadow(0 0 12px rgba(184, 149, 64, 0.5));
+      }
+      .ofuda:hover .ofuda-text { color: var(--mist-100); text-shadow: 0 0 18px var(--mist-glow); }
+      .ofuda:focus-visible {
+        outline: 2px solid var(--gold-500);
+        outline-offset: 6px;
+      }
+
+      .ofuda svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+      .ofuda-text {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        writing-mode: vertical-rl;
+        text-orientation: upright;
+        font-family: "Yuji Syuku", serif;
+        font-size: 38px;
+        color: var(--gold-100);
+        letter-spacing: 0.2em;
+        text-shadow: 0 0 12px rgba(184, 224, 255, 0.35);
+        padding: 28px 0;
+        transition: color 0.4s, text-shadow 0.4s;
+        pointer-events: none;
+      }
+
+      .ofuda-flame { display: none; }
+
+      .ofuda-hint {
+        position: absolute;
+        top: 50%;
+        left: calc(100% + 24px);
+        transform: translateY(-50%);
+        font-family: "Shippori Mincho B1", serif;
+        font-size: 11px;
+        letter-spacing: 0.3em;
+        color: var(--mist-500);
+        writing-mode: vertical-rl;
+        white-space: nowrap;
+        opacity: 0.7;
+      }
+
+      /* ─────── chrome (skip / mute / version) ─────── */
+      .chrome-skip {
+        position: absolute;
+        top: 28px;
+        right: 32px;
+        font-family: "Noto Sans JP", sans-serif;
+        font-size: 13px;
+        letter-spacing: 0.15em;
+        color: rgba(245, 231, 196, 0.45);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .chrome-skip:hover { color: var(--gold-100); }
+
+      .chrome-mute {
+        position: absolute;
+        bottom: 24px;
+        right: 32px;
+        background: none;
+        border: 1px solid rgba(245, 231, 196, 0.2);
+        color: rgba(245, 231, 196, 0.55);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .chrome-mute:hover {
+        color: var(--gold-100);
+        border-color: var(--gold-500);
+      }
+
+      .chrome-version {
+        position: absolute;
+        bottom: 26px;
+        right: 32px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: rgba(245, 231, 196, 0.3);
+        z-index: 6;
+      }
+      /* relocate mute button up-left of version */
+      .chrome-mute {
+        right: auto;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 24px;
+      }
+
+      /* ─────── vignette: pull eyes to center ─────── */
+      .vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(ellipse 90% 70% at 50% 50%,
+            transparent 40%,
+            rgba(10, 5, 9, 0.55) 85%,
+            rgba(10, 5, 9, 0.85) 100%);
+        z-index: 10;
+      }
+      /* corner darkening for cinema feel */
+      .vignette::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 0% 0%, rgba(10, 5, 9, 0.6) 0%, transparent 35%),
+          radial-gradient(circle at 100% 0%, rgba(10, 5, 9, 0.6) 0%, transparent 35%),
+          radial-gradient(circle at 0% 100%, rgba(10, 5, 9, 0.7) 0%, transparent 40%),
+          radial-gradient(circle at 100% 100%, rgba(10, 5, 9, 0.7) 0%, transparent 40%);
+      }
+
+      /* ─────── vertical poem column (left edge) ─────── */
+      .poem {
+        position: absolute;
+        top: 12%;
+        bottom: 12%;
+        left: 5.5%;
+        writing-mode: vertical-rl;
+        text-orientation: upright;
+        font-family: "Shippori Mincho B1", serif;
+        font-size: 13px;
+        letter-spacing: 0.8em;
+        color: rgba(184, 202, 216, 0.42);
+        z-index: 5;
+        animation: poemIn 2.5s 3.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+        user-select: none;
+        line-height: 1.4;
+      }
+      .poem .em { color: rgba(245, 231, 196, 0.7); }
+      @keyframes poemIn {
+        from { opacity: 0; filter: blur(8px); transform: translateY(-12px); }
+        to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
+      }
+
+      /* ─────── hour mark (十二時辰) bottom-left, replaces plain version ─────── */
+      .hour-mark {
+        position: absolute;
+        bottom: 26px;
+        left: 32px;
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        z-index: 5;
+      }
+      .hour-mark .hour {
+        font-family: "Yuji Syuku", serif;
+        font-size: 22px;
+        letter-spacing: 0.1em;
+        color: var(--gold-300);
+        text-shadow: 0 0 12px rgba(184, 224, 255, 0.25);
+      }
+      .hour-mark .meta {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: rgba(245, 231, 196, 0.4);
+      }
+
+      /* ─────── slow moonlight scan (vertical sweep) ─────── */
+      .moon-scan {
+        position: absolute;
+        left: -10%;
+        right: -10%;
+        top: -10%;
+        height: 8%;
+        pointer-events: none;
+        background: linear-gradient(180deg,
+          transparent,
+          rgba(184, 224, 255, 0.10) 50%,
+          transparent);
+        filter: blur(20px);
+        animation: moonScan 22s linear infinite;
+        z-index: 4;
+        mix-blend-mode: screen;
+      }
+      @keyframes moonScan {
+        from { transform: translateY(0); }
+        to   { transform: translateY(1400%); }
+      }
+
+      /* ─────── custom cursor halo ─────── */
+      .cursor-halo {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 90;
+        background: radial-gradient(circle,
+          rgba(184, 224, 255, 0.20) 0%,
+          rgba(184, 224, 255, 0.06) 35%,
+          transparent 70%);
+        transform: translate(-50%, -50%);
+        transition: width 0.3s ease-out, height 0.3s ease-out, background 0.3s;
+        opacity: 0;
+      }
+      .cursor-halo.visible { opacity: 1; }
+      .cursor-halo.is-near-ofuda {
+        width: 120px;
+        height: 120px;
+        background: radial-gradient(circle,
+          rgba(184, 224, 255, 0.35) 0%,
+          rgba(184, 224, 255, 0.10) 40%,
+          transparent 70%);
+      }
+
+      /* ─────── ENDING SEQUENCE: 「参」が沈む → 太鼓の一打 → 神光が降りる → 前に側る ─────── */
+      .world-kanji.is-awakening {
+        z-index: 92;
+      }
+      .world-kanji.is-awakening span {
+        animation: worldKanjiAwaken 3.2s cubic-bezier(0.5, 0, 0.25, 1) forwards;
+      }
+      @keyframes worldKanjiAwaken {
+        /* === Phase 1: SINK (0–10%) — 重さと緊張 === */
+        0% {
+          opacity: 1;
+          transform: scale(1);
+          color: transparent;
+          background: linear-gradient(180deg,
+            rgba(245, 231, 196, 0.18) 0%,
+            rgba(184, 149, 64, 0.24) 40%,
+            rgba(138, 109, 36, 0.06) 100%);
+          -webkit-background-clip: text;
+                  background-clip: text;
+          filter: drop-shadow(0 0 60px rgba(184, 224, 255, 0.10));
+        }
+        8% {
+          opacity: 0.6;
+          transform: scale(0.95);
+          filter: drop-shadow(0 0 24px rgba(184, 224, 255, 0.04));
+        }
+        /* === Phase 2: HOLD (8–10%) — 一瞬の静止 === */
+        10% {
+          opacity: 0.55;
+          transform: scale(0.94);
+          filter: drop-shadow(0 0 24px rgba(184, 224, 255, 0.04));
+        }
+        /* === Phase 3: 太鼓の一打 (10–16%) — 押し戻される === */
+        16% {
+          opacity: 1;
+          transform: scale(1.06);
+          filter: drop-shadow(0 0 140px rgba(245, 231, 196, 0.7))
+                  drop-shadow(0 0 35px rgba(255, 250, 230, 0.6));
+        }
+        /* === Phase 4: EMERGE (16→100%) === */
+        48% {
+          opacity: 1;
+          transform: scale(1.5);
+          color: rgba(245, 231, 196, 0.88);
+          background: none;
+          -webkit-background-clip: initial;
+                  background-clip: initial;
+          -webkit-text-fill-color: rgba(245, 231, 196, 0.88);
+          filter: drop-shadow(0 0 100px rgba(245, 231, 196, 0.6))
+                  drop-shadow(0 0 240px rgba(184, 224, 255, 0.5));
+        }
+        82% {
+          opacity: 1;
+          transform: scale(2.3);
+          color: #fff;
+          background: none;
+          -webkit-background-clip: initial;
+                  background-clip: initial;
+          -webkit-text-fill-color: #fff;
+          filter: drop-shadow(0 0 160px #fff)
+                  drop-shadow(0 0 400px rgba(245, 231, 196, 1));
+        }
+        100% {
+          opacity: 0;
+          transform: scale(3.4);
+          color: #fff;
+          background: none;
+          -webkit-background-clip: initial;
+                  background-clip: initial;
+          -webkit-text-fill-color: #fff;
+          filter: drop-shadow(0 0 280px #fff)
+                  drop-shadow(0 0 700px #fff);
+        }
+      }
+
+      /* (神光の縦線と画面縁の朱色フラッシュは削除した — 御札・「参」の沈めた動きだけで語る) */
+
+      /* ofuda fades subtly while world awakens */
+      .ofuda.is-vanishing {
+        animation: ofudaFadeForVanish 1.0s ease-in forwards;
+      }
+      @keyframes ofudaFadeForVanish {
+        from { opacity: 1; filter: drop-shadow(0 0 18px rgba(184, 224, 255, 0.2)); }
+        to   { opacity: 0; filter: drop-shadow(0 0 60px rgba(245, 231, 196, 0.8)); }
+      }
+
+      .stage.is-fading-out {
+        animation: stageFadeOut 1.6s ease-in forwards;
+      }
+      @keyframes stageFadeOut {
+        from { filter: brightness(1) blur(0); }
+        to   { filter: brightness(0.3) blur(3px); }
+      }
+      .stage.is-fading-out .world-kanji.is-awakening {
+        filter: brightness(1) !important;
+      }
+      /* (legacy burn vars left in but unused) */
+      @property --burn {
+        syntax: "<percentage>";
+        inherits: false;
+        initial-value: 0%;
+      }
+
+      .burn-flame-layer {
+        position: absolute;
+        inset: -10px;
+        pointer-events: none;
+        opacity: 0;
+        z-index: 5;
+        background:
+          radial-gradient(ellipse 14% 24% at 18% calc(100% - var(--burn) + 6px),
+            rgba(255, 220, 140, 0.9), rgba(255, 110, 30, 0.5) 50%, transparent 75%),
+          radial-gradient(ellipse 12% 30% at 42% calc(100% - var(--burn) + 4px),
+            rgba(255, 230, 160, 1), rgba(255, 100, 30, 0.6) 50%, transparent 75%),
+          radial-gradient(ellipse 13% 22% at 68% calc(100% - var(--burn) + 8px),
+            rgba(255, 215, 130, 0.85), rgba(255, 90, 30, 0.5) 50%, transparent 75%),
+          radial-gradient(ellipse 10% 26% at 85% calc(100% - var(--burn) + 5px),
+            rgba(255, 200, 120, 0.8), rgba(255, 80, 20, 0.45) 50%, transparent 75%),
+          linear-gradient(0deg,
+            transparent calc(var(--burn) - 6%),
+            rgba(255, 130, 50, 0.7) calc(var(--burn) - 2%),
+            rgba(255, 230, 160, 1) var(--burn),
+            rgba(255, 100, 30, 0.85) calc(var(--burn) + 3%),
+            rgba(184, 68, 40, 0.45) calc(var(--burn) + 7%),
+            transparent calc(var(--burn) + 12%));
+        filter: blur(2.5px) url(#flameFlicker);
+        mix-blend-mode: screen;
+        animation: flameFadeOut 1.8s linear forwards paused;
+      }
+      @keyframes flameFadeOut {
+        0%, 85% { opacity: 1; }
+        100%    { opacity: 0; }
+      }
+
+      .ofuda.is-burning {
+        animation: ofudaBurn 1.8s linear forwards,
+                   ofudaSway 4s ease-in-out infinite;
+        -webkit-mask-image: linear-gradient(0deg,
+          transparent var(--burn),
+          rgba(0, 0, 0, 0.35) calc(var(--burn) + 2%),
+          black calc(var(--burn) + 7%));
+        mask-image: linear-gradient(0deg,
+          transparent var(--burn),
+          rgba(0, 0, 0, 0.35) calc(var(--burn) + 2%),
+          black calc(var(--burn) + 7%));
+        filter: url(#burnEdge) drop-shadow(0 0 18px rgba(255, 130, 50, 0.45));
+        isolation: isolate;
+      }
+      /* char band: paper darkens just above burn line */
+      .ofuda.is-burning::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(0deg,
+          transparent calc(var(--burn) + 3%),
+          rgba(20, 8, 2, 0.85) calc(var(--burn) + 8%),
+          rgba(60, 25, 8, 0.5) calc(var(--burn) + 16%),
+          transparent calc(var(--burn) + 25%));
+        pointer-events: none;
+        z-index: 4;
+      }
+      .ofuda.is-burning .burn-flame-layer {
+        animation-play-state: running;
+      }
+      @keyframes ofudaBurn {
+        from { --burn: -5%; }
+        to   { --burn: 115%; }
+      }
+
+      /* ash particles, spawned via JS */
+      .ash {
+        position: fixed;
+        width: 3px;
+        height: 3px;
+        background: rgba(245, 220, 180, 0.85);
+        border-radius: 50%;
+        pointer-events: none;
+        box-shadow: 0 0 8px rgba(255, 180, 80, 0.7);
+        z-index: 11;
+      }
+
+      /* sumi calligraphy stroke */
+      .sumi {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 80;
+        opacity: 0;
+        transition: opacity 0.15s;
+      }
+      .sumi.show { opacity: 1; }
+      .sumi path {
+        transition:
+          stroke-dashoffset 0.85s cubic-bezier(0.3, 0, 0.7, 1),
+          stroke-width 1.0s ease-in 0.55s,
+          filter 1.0s ease-in 0.55s;
+      }
+      .sumi.drawn path { stroke-dashoffset: 0; }
+      .sumi.bled .sumi-outer {
+        stroke-width: 400;
+        filter: url(#sumiBristle) blur(12px);
+      }
+      .sumi.bled .sumi-core {
+        stroke-width: 220;
+        filter: blur(8px);
+      }
+      /* splatter fades in after stroke draws */
+      .sumi-splatter {
+        opacity: 0;
+        transition: opacity 0.4s ease-out 0.6s;
+      }
+      .sumi.drawn .sumi-splatter { opacity: 1; }
+
+      /* full-screen ink takeover */
+      .ink-fill {
+        position: fixed;
+        inset: 0;
+        background: #050204;
+        pointer-events: none;
+        z-index: 79;
+        opacity: 0;
+        transition: opacity 0.9s ease-in;
+      }
+      .ink-fill.active { opacity: 1; }
+
+      /* ─────── click flash & confetti ─────── */
+      .flash {
+        position: fixed;
+        inset: 0;
+        background: var(--mist-100);
+        opacity: 0;
+        pointer-events: none;
+        z-index: 100;
+      }
+      /* 「キメ」: じわり上がる荘厳な白 (ティアキン起動のように) */
+      .kime-bloom {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 90;
+        opacity: 0;
+        background: radial-gradient(circle at 50% 50%,
+          rgba(255, 250, 230, 1) 0%,
+          rgba(245, 231, 196, 0.85) 15%,
+          rgba(184, 224, 255, 0.5) 35%,
+          transparent 65%);
+        transform: scale(0.2);
+        transform-origin: 50% 50%;
+      }
+      .kime-bloom.active {
+        animation: kimeBloom 2.4s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+      }
+      @keyframes kimeBloom {
+        0%   { opacity: 0; transform: scale(0.15); }
+        30%  { opacity: 0.4; transform: scale(0.6); }
+        70%  { opacity: 0.95; transform: scale(1.6); }
+        100% { opacity: 1; transform: scale(3.0); }
+      }
+
+      .flash.active {
+        animation: flashKime 2.0s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+      @keyframes flashKime {
+        0%   { opacity: 0; }
+        70%  { opacity: 0.9; }
+        100% { opacity: 1; }
+      }
+      @keyframes flash {
+        0%   { opacity: 0; }
+        40%  { opacity: 1; }
+        100% { opacity: 1; }
+      }
+
+      /* ─────── loading screen ─────── */
+      .loader {
+        position: fixed;
+        inset: 0;
+        background: var(--ink-950);
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 40px;
+        animation: loaderOut 1.2s 3.2s cubic-bezier(0.5, 0, 0.5, 1) forwards;
+        pointer-events: none;
+      }
+      .loader-line {
+        width: 0;
+        height: 1px;
+        background: linear-gradient(90deg,
+          transparent,
+          var(--gold-500) 50%,
+          transparent);
+        animation: lineSweep 1.4s 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      .loader-text {
+        font-family: "Shippori Mincho B1", serif;
+        font-size: 12px;
+        letter-spacing: 0.6em;
+        padding-left: 0.6em;
+        color: var(--mist-500);
+        opacity: 0;
+        animation: loaderTextIn 1.2s 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      .loader-dots {
+        display: inline-block;
+        width: 24px;
+        text-align: left;
+      }
+      .loader-dots::after {
+        content: "";
+        animation: dots 1.4s steps(4, end) 1.5s infinite;
+      }
+      .loader-spark {
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--mist-glow);
+        box-shadow: 0 0 12px 2px rgba(184, 224, 255, 0.7);
+        opacity: 0;
+        animation: sparkBlink 2.4s ease-in-out 1.6s infinite;
+      }
+      .loader-spark.s1 { left: 38%; top: 48%; animation-delay: 1.6s; }
+      .loader-spark.s2 { left: 58%; top: 52%; animation-delay: 1.9s; }
+      .loader-spark.s3 { left: 50%; top: 60%; animation-delay: 2.2s; }
+      @keyframes lineSweep {
+        0%   { width: 0; opacity: 0; }
+        20%  { opacity: 1; }
+        100% { width: 240px; opacity: 1; }
+      }
+      @keyframes loaderTextIn {
+        from { opacity: 0; filter: blur(8px); transform: translateY(6px); }
+        to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
+      }
+      @keyframes sparkBlink {
+        0%, 100% { opacity: 0; }
+        50%      { opacity: 1; }
+      }
+      @keyframes dots {
+        0%   { content: ""; }
+        25%  { content: "・"; }
+        50%  { content: "・・"; }
+        75%  { content: "・・・"; }
+        100% { content: ""; }
+      }
+      @keyframes loaderOut {
+        from { opacity: 1; }
+        to   { opacity: 0; visibility: hidden; }
+      }
+
+      /* ─────── reduced motion ─────── */
+      @media (prefers-reduced-motion: reduce) {
+        .world-kanji span,
+        .fog,
+        .foxfire,
+        .ofuda,
+        .ofuda-flame,
+        .loader-spark { animation: none !important; }
+        .header, .ofuda-wrap { animation: none !important; opacity: 1 !important; }
+        .loader { animation-delay: 0s !important; animation-duration: 0.4s !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="loader" id="loader" aria-hidden="true">
+      <div class="loader-line"></div>
+      <div class="loader-text">
+        気配を辿っています<span class="loader-dots"></span>
+      </div>
+      <div class="loader-spark s1"></div>
+      <div class="loader-spark s2"></div>
+      <div class="loader-spark s3"></div>
+    </div>
+
+    <!-- SVG filters: リアルな燃える辺と筆の飛白を表現 -->
+    <svg width="0" height="0" style="position:absolute;pointer-events:none">
+      <defs>
+        <filter id="burnEdge" x="-15%" y="-15%" width="130%" height="130%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.6 1.1" numOctaves="2" seed="3">
+            <animate attributeName="seed" values="1;7;3;12;5;9;2" dur="0.5s" repeatCount="indefinite" />
+            <animate attributeName="baseFrequency" values="0.6 1.1;0.7 1.3;0.6 1.0" dur="0.8s" repeatCount="indefinite" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" scale="9" />
+        </filter>
+        <filter id="flameFlicker" x="-20%" y="-20%" width="140%" height="140%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.04 0.08" numOctaves="2" seed="4">
+            <animate attributeName="seed" values="1;3;7;2;5;9" dur="0.35s" repeatCount="indefinite" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" scale="15" />
+        </filter>
+        <filter id="sumiBristle" x="-3%" y="-3%" width="106%" height="106%">
+          <feTurbulence type="fractalNoise" baseFrequency="1.4 0.18" numOctaves="2" seed="5" />
+          <feDisplacementMap in="SourceGraphic" scale="3.5" />
+          <feGaussianBlur stdDeviation="0.4" />
+        </filter>
+        <filter id="sumiCore" x="-2%" y="-2%" width="104%" height="104%">
+          <feGaussianBlur stdDeviation="0.8" />
+        </filter>
+      </defs>
+    </svg>
+
+    <div class="stage" id="stage">
+      <div class="bg-base"></div>
+      <div class="grain"></div>
+
+      <div class="world-kanji" id="worldKanji"><span>参</span></div>
+
+      <div class="moon-scan"></div>
+
+      <div class="fog" id="fog1"></div>
+      <div class="fog fog-2"></div>
+
+      <div class="vignette"></div>
+
+      <div class="poem" aria-hidden="true">
+        <span>夜　ふかし</span><br>
+        <span>霧　黄泉に　しづみ</span><br>
+        <span class="em">灯　ひとつ</span>
+      </div>
+
+      <div class="header">
+        <div class="rule"></div>
+        <h1>幽世</h1>
+        <div class="sub">あやかしの集う社</div>
+      </div>
+
+      <div id="foxfire-container"></div>
+
+      <div class="ofuda-wrap">
+        <button class="ofuda" id="ofuda" aria-label="参拝（Discordでログイン）">
+          <svg viewBox="0 0 110 320">
+            <defs>
+              <linearGradient id="ofuda-bg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#2a1c25" />
+                <stop offset="1" stop-color="#14090f" />
+              </linearGradient>
+              <linearGradient id="ofuda-edge" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#e0c684" />
+                <stop offset="1" stop-color="#8a6d24" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 55 4 L 100 26 L 100 312 L 10 312 L 10 26 Z"
+              fill="url(#ofuda-bg)"
+              stroke="url(#ofuda-edge)"
+              stroke-width="1.4"
+            />
+            <path
+              d="M 55 16 L 91 33 L 91 302 L 19 302 L 19 33 Z"
+              fill="none"
+              stroke="#8a6d24"
+              stroke-width="0.5"
+              opacity="0.55"
+            />
+            <circle cx="55" cy="44" r="3" fill="#b89540" opacity="0.85" />
+            <!-- 朱の印章 (square seal stamp) -->
+            <g transform="translate(55, 240)">
+              <rect
+                x="-13" y="-13" width="26" height="26"
+                fill="#b04438"
+                opacity="0.85"
+                transform="rotate(-2)"
+              />
+              <rect
+                x="-10" y="-10" width="20" height="20"
+                fill="none"
+                stroke="#f5e7c4"
+                stroke-width="0.8"
+                opacity="0.6"
+                transform="rotate(-2)"
+              />
+              <!-- 印影風の文字「幽」 -->
+              <text
+                x="0" y="4"
+                font-family="&quot;Yuji Syuku&quot;, serif"
+                font-size="14"
+                text-anchor="middle"
+                fill="#f5e7c4"
+                opacity="0.75"
+                transform="rotate(-2)"
+              >幽</text>
+            </g>
+          </svg>
+          <div class="ofuda-text">参拝</div>
+        </button>
+        <div class="ofuda-hint">Discordで参拝</div>
+      </div>
+
+      <a class="chrome-skip" href="#" id="skip">結界を抜ける →</a>
+      <button class="chrome-mute" id="mute">♪ MUTE</button>
+      <div class="hour-mark" id="hourMark">
+        <div class="hour" id="hourKanji">戌の刻</div>
+        <div class="meta">AYAKASHI-PORTAL / v0.1.0</div>
+      </div>
+    </div>
+
+    <!-- legacy elements hidden; replaced by world-collapse → singularity -->
+    <svg class="sumi" id="sumi" style="display:none"></svg>
+    <div class="ink-fill" id="inkFill" style="display:none"></div>
+    <div class="kime-bloom" id="kimeBloom" aria-hidden="true"></div>
+    <div class="cursor-halo" id="cursorHalo"></div>
+    <div class="flash" id="flash"></div>
+
+    <script>
+      // ─── foxfire particles (CSS-driven) ─────────────
+      const foxContainer = document.getElementById("foxfire-container");
+      const FOX_COUNT = 24;
+      for (let i = 0; i < FOX_COUNT; i++) {
+        const f = document.createElement("div");
+        f.className = "foxfire";
+        const left = Math.random() * 100;
+        const top = 30 + Math.random() * 60;
+        const dur = 5 + Math.random() * 4;
+        const delay = -Math.random() * dur;
+        const sway = (Math.random() - 0.5) * 60;
+        const size = 3 + Math.random() * 4;
+        f.style.cssText = `
+          left: ${left}%;
+          top: ${top}%;
+          width: ${size}px;
+          height: ${size}px;
+          --dur: ${dur}s;
+          --delay: ${delay}s;
+          --sway: ${sway}px;
+        `;
+        foxContainer.appendChild(f);
+      }
+
+      // ─── ofuda click → 静かな暗転 ────────────────
+      const stage = document.getElementById("stage");
+      const flash = document.getElementById("flash");
+      const ofuda = document.getElementById("ofuda");
+
+      function convergeFoxfire() {
+        const r = ofuda.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        document.querySelectorAll(".foxfire").forEach((f) => {
+          const fr = f.getBoundingClientRect();
+          const dx = cx - (fr.left + fr.width / 2);
+          const dy = cy - (fr.top + fr.height / 2);
+          f.style.animation = "none";
+          f.animate(
+            [
+              { transform: "translate(0,0) scale(1)", opacity: 0.9 },
+              { transform: `translate(${dx * 0.9}px, ${dy * 0.9}px) scale(2.2)`, opacity: 1, offset: 0.85 },
+              { transform: `translate(${dx}px, ${dy}px) scale(0)`, opacity: 0 },
+            ],
+            {
+              duration: 700 + Math.random() * 400,
+              delay: Math.random() * 250,
+              easing: "cubic-bezier(0.5, 0, 0.75, 0)",
+              fill: "forwards",
+            }
+          );
+        });
+      }
+
+      let entering = false;
+      function enter() {
+        if (entering) return;
+        entering = true;
+
+        const worldKanjiEl = document.querySelector(".world-kanji");
+        const kimeBloom = document.getElementById("kimeBloom");
+
+        // 0.0s — 「参」が沈む → 0.3sで押し戻される → emerge へ続く
+        worldKanjiEl.classList.add("is-awakening");
+
+        // 0.30s — 狐火集合 + 御札フェード (「参」の押し戻しと同じタイミング)
+        setTimeout(() => {
+          convergeFoxfire();
+          ofuda.classList.add("is-vanishing");
+        }, 300);
+
+        // 0.7s — 周囲の世界が退いていく
+        setTimeout(() => stage.classList.add("is-fading-out"), 700);
+
+        // 2.0s — キメの光 + 白フラッシュ
+        setTimeout(() => kimeBloom.classList.add("active"), 2000);
+        setTimeout(() => flash.classList.add("active"), 2000);
+
+        // 4.2s — reset / 本番では window.location = "/api/auth/discord"
+        setTimeout(() => {
+          entering = false;
+          ofuda.classList.remove("is-vanishing");
+          stage.classList.remove("is-fading-out");
+          worldKanjiEl.classList.remove("is-awakening");
+          kimeBloom.classList.remove("active");
+          flash.classList.remove("active");
+          document.querySelectorAll(".foxfire").forEach((f) => {
+            f.getAnimations().forEach((a) => a.cancel());
+            f.style.animation = "";
+          });
+        }, 4200);
+      }
+
+      // ─── audio engine (Web Audio API) ────────────
+      let audioCtx = null;
+      let masterGain = null;
+      let ambient = null;
+      let muted = localStorage.getItem("ayakashi-muted") !== "0";
+
+      function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = muted ? 0 : 0.6;
+        masterGain.connect(audioCtx.destination);
+      }
+
+      function ensureAudio() {
+        initAudio();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+      }
+
+      // 鈴 — sine harmonics with exponential decay
+      function playBell() {
+        ensureAudio();
+        const now = audioCtx.currentTime;
+        const fund = 880;
+        const harmonics = [
+          { f: fund * 0.5, g: 0.3, d: 2.6 },
+          { f: fund,        g: 0.5, d: 1.8 },
+          { f: fund * 2.76, g: 0.35, d: 1.2 },
+          { f: fund * 5.4,  g: 0.15, d: 0.7 },
+        ];
+        harmonics.forEach((h) => {
+          const osc = audioCtx.createOscillator();
+          osc.type = "sine";
+          osc.frequency.value = h.f;
+          const g = audioCtx.createGain();
+          g.gain.setValueAtTime(0, now);
+          g.gain.linearRampToValueAtTime(h.g * 0.35, now + 0.005);
+          g.gain.exponentialRampToValueAtTime(0.0005, now + h.d);
+          osc.connect(g).connect(masterGain);
+          osc.start(now);
+          osc.stop(now + h.d + 0.1);
+        });
+      }
+
+      // 紙擦れ — short brown-noise burst
+      function playRustle() {
+        ensureAudio();
+        const dur = 0.18;
+        const bufferSize = Math.floor(audioCtx.sampleRate * dur);
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        let last = 0;
+        for (let i = 0; i < bufferSize; i++) {
+          const w = Math.random() * 2 - 1;
+          last = (last + 0.02 * w) / 1.02;
+          data[i] = last * 3.5;
+        }
+        const src = audioCtx.createBufferSource();
+        src.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "highpass";
+        filter.frequency.value = 1200;
+        const g = audioCtx.createGain();
+        const now = audioCtx.currentTime;
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.08, now + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0005, now + dur);
+        src.connect(filter).connect(g).connect(masterGain);
+        src.start(now);
+      }
+
+      // キメの thump — low sine sweep
+      function playThump() {
+        ensureAudio();
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(95, now);
+        osc.frequency.exponentialRampToValueAtTime(28, now + 1.2);
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.6, now + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.0005, now + 1.4);
+        osc.connect(g).connect(masterGain);
+        osc.start(now);
+        osc.stop(now + 1.5);
+      }
+
+      // キメ — 長いサブランブル + 荘厳な鈴のシマー住住 と伏した位相 (Zelda TotK 風)
+      function playKime() {
+        ensureAudio();
+        const now = audioCtx.currentTime;
+
+        // 1) 低周鈴誠鈴 (サブベース): じわっと許さない誓しのように上がる
+        {
+          const osc = audioCtx.createOscillator();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(42, now);
+          osc.frequency.linearRampToValueAtTime(72, now + 1.6);
+          const g = audioCtx.createGain();
+          g.gain.setValueAtTime(0.001, now);
+          g.gain.linearRampToValueAtTime(0.45, now + 1.4);
+          g.gain.linearRampToValueAtTime(0.55, now + 1.9);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 3.0);
+          osc.connect(g).connect(masterGain);
+          osc.start(now); osc.stop(now + 3.1);
+        }
+
+        // 2) 鈴 × シマー — 高め、多倍音、スタガー付き、長い住住
+        const bellStart = now + 1.2;  // サブベースが上がり切るわずか手前で鉄される
+        const harmonics = [
+          { f: 1320, g: 0.30, d: 3.6 },  // E6
+          { f: 1760, g: 0.22, d: 3.0 },  // A6
+          { f: 2640, g: 0.16, d: 2.4 },
+          { f: 3520, g: 0.10, d: 2.0 },
+          { f: 5280, g: 0.06, d: 1.4 },  // shimmer
+        ];
+        harmonics.forEach((h, i) => {
+          const osc = audioCtx.createOscillator();
+          osc.type = "sine";
+          osc.frequency.value = h.f;
+          const g = audioCtx.createGain();
+          const startT = bellStart + i * 0.025;
+          g.gain.setValueAtTime(0, startT);
+          g.gain.linearRampToValueAtTime(h.g * 0.30, startT + 0.18);
+          g.gain.linearRampToValueAtTime(h.g * 0.40, startT + 0.6);
+          g.gain.exponentialRampToValueAtTime(0.0005, startT + h.d);
+          osc.connect(g).connect(masterGain);
+          osc.start(startT); osc.stop(startT + h.d + 0.1);
+        });
+
+        // 3) 上部 reverb-style シマー (鈴の住髿の背後の残鬲)
+        {
+          const dur = 2.4;
+          const bufferSize = Math.floor(audioCtx.sampleRate * dur);
+          const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * 0.5;
+          }
+          const src = audioCtx.createBufferSource();
+          src.buffer = buffer;
+          const filter = audioCtx.createBiquadFilter();
+          filter.type = "bandpass";
+          filter.frequency.value = 6000;
+          filter.Q.value = 2;
+          const g = audioCtx.createGain();
+          const sT = now + 1.4;
+          g.gain.setValueAtTime(0, sT);
+          g.gain.linearRampToValueAtTime(0.04, sT + 0.4);
+          g.gain.exponentialRampToValueAtTime(0.0005, sT + dur);
+          src.connect(filter).connect(g).connect(masterGain);
+          src.start(sT);
+        }
+      }
+
+      // 環境 — detuned low-frequency drone
+      function startAmbient() {
+        if (ambient) return;
+        ensureAudio();
+        const make = (freq) => {
+          const o = audioCtx.createOscillator();
+          o.type = "sine";
+          o.frequency.value = freq;
+          return o;
+        };
+        const osc1 = make(73);
+        const osc2 = make(79);
+        const osc3 = make(220);
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 380;
+        filter.Q.value = 1.2;
+        const g = audioCtx.createGain();
+        g.gain.value = 0.09;
+        // LFO for breathing
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.value = 0.07;
+        const lfoG = audioCtx.createGain();
+        lfoG.gain.value = 0.04;
+        lfo.connect(lfoG);
+        lfoG.connect(g.gain);
+        osc1.connect(filter);
+        osc2.connect(filter);
+        osc3.connect(filter);
+        filter.connect(g).connect(masterGain);
+        osc1.start(); osc2.start(); osc3.start(); lfo.start();
+        ambient = { osc1, osc2, osc3, lfo, g };
+      }
+
+      function setMuted(m) {
+        muted = m;
+        if (masterGain && audioCtx) {
+          const now = audioCtx.currentTime;
+          masterGain.gain.cancelScheduledValues(now);
+          masterGain.gain.linearRampToValueAtTime(m ? 0 : 0.6, now + 0.6);
+        }
+        localStorage.setItem("ayakashi-muted", m ? "1" : "0");
+        const btn = document.getElementById("mute");
+        btn.textContent = m ? "♪ MUTE" : "♪ ON";
+      }
+
+      // wire MUTE button (replaces earlier placeholder)
+      document.getElementById("mute").addEventListener("click", () => {
+        const newMuted = !muted;
+        setMuted(newMuted);
+        if (!newMuted) {
+          ensureAudio();
+          startAmbient();
+        }
+      });
+      // initial label
+      document.getElementById("mute").textContent = muted ? "♪ MUTE" : "♪ ON";
+
+      // ofuda hover plays rustle (with debounce)
+      let lastRustle = 0;
+      ofuda.addEventListener("mouseenter", () => {
+        if (muted) return;
+        const now = Date.now();
+        if (now - lastRustle < 400) return;
+        lastRustle = now;
+        playRustle();
+      });
+
+      // ─── mouse parallax: world responds subtly ──────
+      const worldKanji = document.getElementById("worldKanji");
+      const cursorHalo = document.getElementById("cursorHalo");
+      let targetX = 0, targetY = 0;
+      let curX = 0, curY = 0;
+      let haloX = 0, haloY = 0;
+      let haloTX = 0, haloTY = 0;
+      window.addEventListener("mousemove", (e) => {
+        const nx = (e.clientX / window.innerWidth - 0.5) * 2;  // -1..1
+        const ny = (e.clientY / window.innerHeight - 0.5) * 2;
+        targetX = nx;
+        targetY = ny;
+        haloTX = e.clientX;
+        haloTY = e.clientY;
+        cursorHalo.classList.add("visible");
+
+        // near ofuda detection
+        const r = ofuda.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
+        cursorHalo.classList.toggle("is-near-ofuda", dist < 220);
+      });
+      window.addEventListener("mouseleave", () => {
+        cursorHalo.classList.remove("visible");
+      });
+      function tick() {
+        curX += (targetX - curX) * 0.06;
+        curY += (targetY - curY) * 0.06;
+        haloX += (haloTX - haloX) * 0.18;
+        haloY += (haloTY - haloY) * 0.18;
+        worldKanji.style.transform = `translate(${-curX * 14}px, ${-curY * 10}px)`;
+        cursorHalo.style.transform = `translate(${haloX}px, ${haloY}px) translate(-50%, -50%)`;
+        requestAnimationFrame(tick);
+      }
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        requestAnimationFrame(tick);
+      }
+
+      // ─── current hour in 12-hour kanji (十二時辰) ───────────
+      const hourKanji = document.getElementById("hourKanji");
+      const HOURS = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
+      function updateHour() {
+        const h = new Date().getHours();
+        // 子の刻 = 23-1, so shift by 1
+        const idx = Math.floor(((h + 1) % 24) / 2);
+        hourKanji.textContent = `${HOURS[idx]}の刻`;
+      }
+      updateHour();
+      setInterval(updateHour, 60 * 1000);
+
+      ofuda.addEventListener("click", enter);
+      ofuda.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          enter();
+        }
+      });
+
+      document.getElementById("skip").addEventListener("click", (e) => {
+        e.preventDefault();
+        enter();
+      });
+    </script>
+  </body>
+</html>
