@@ -42,4 +42,4 @@ export {
 export { auditLog } from "./schema/audit";
 
 // カレンダーイベント
-export { calendarEvents } from "./schema/calendar";
+export { calendarEvents, calendarEventOverrides } from "./schema/calendar";
