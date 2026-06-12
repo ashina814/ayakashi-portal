@@ -1,0 +1,188 @@
+---
+/**
+ * LuxelShell — LUXEL インテリア（ログイン後本体）の共通レイアウト
+ *
+ * 固定の左レール（ナビ）+ 右コンテンツカラム + 固定の天球（星空）背景。
+ * design_handoff_luxel_content の app.jsx / shared.jsx / scene.css を Astro 化。
+ * ハッシュルーティングの代わりに実 URL（/ , /timeline , /calendar , /roles）。
+ *
+ * Props:
+ *   title   : <title>
+ *   active  : "concept" | "timeline" | "calendar" | "roles"
+ *   isAdmin : 管理リンクを副ナビに出すか
+ *
+ * 月相はサーバーサイドで計算してレールに表示。星の散布とドロワー開閉は client。
+ */
+
+import "../styles/luxel.css";
+
+interface Props {
+  title: string;
+  active: "concept" | "timeline" | "calendar" | "roles";
+  isAdmin?: boolean;
+}
+
+const { title, active, isAdmin = false } = Astro.props;
+
+const NAV = [
+  { key: "concept", href: "/", jp: "コンセプト", en: "Concept" },
+  { key: "timeline", href: "/timeline", jp: "年表", en: "Chronicle" },
+  { key: "calendar", href: "/calendar", jp: "カレンダー", en: "Almanac" },
+  { key: "roles", href: "/roles", jp: "ロール", en: "Roles" },
+] as const;
+
+// 副ナビ: 幽世セクションへの外部リンク（当面そのまま）
+const SUB_NAV = [
+  { href: "/wiki", jp: "巻物の蔵", en: "Wiki" },
+  { href: "/me", jp: "己が記録", en: "Profile" },
+  ...(isAdmin ? [{ href: "/admin", jp: "運営の間", en: "Admin" }] : []),
+];
+
+// 月相（synodic age from 2000-01-06 reference new moon）
+function moonName(date = new Date()): string {
+  const synodic = 29.530588853;
+  const ref = Date.UTC(2000, 0, 6, 18, 14);
+  const days = (date.getTime() - ref) / 86400000;
+  let age = days % synodic;
+  if (age < 0) age += synodic;
+  const frac = age / synodic;
+  const names = ["新月", "三日月", "上弦", "十三夜", "満月", "居待月", "下弦", "有明"];
+  return names[Math.floor(frac * 8 + 0.5) % 8];
+}
+const moon = moonName();
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&family=Cinzel:wght@500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap"
+    />
+  </head>
+  <body>
+    <!-- 固定の天球背景 -->
+    <div class="sky" aria-hidden="true">
+      <div class="sky-base"></div>
+      <div class="sky-nebula"></div>
+      <div class="sky-stars" data-sky-stars></div>
+      <div class="sky-spine"></div>
+      <div class="sky-vignette"></div>
+    </div>
+
+    <!-- 計器フレーム -->
+    <div class="frame" aria-hidden="true">
+      <span class="fm tl"></span><span class="fm tr"></span>
+      <span class="fm bl"></span><span class="fm br"></span>
+    </div>
+
+    <!-- モバイルトップバー -->
+    <header class="topbar">
+      <button class="burger" data-burger aria-label="メニュー" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="topbar-word">LUXEL</span>
+      <span style="width:40px"></span>
+    </header>
+
+    <div class="drawer-scrim" data-scrim></div>
+
+    <!-- 左レール -->
+    <nav class="rail" data-rail aria-label="主要ナビゲーション">
+      <div class="rail-brand">
+        <div class="rail-mark">
+          <svg width="34" height="34" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+            <path d="M20 2 L23 17 L38 20 L23 23 L20 38 L17 23 L2 20 L17 17 Z" fill="#eef4ff" opacity="0.95" />
+            <circle cx="20" cy="20" r="2.4" fill="#fff" />
+          </svg>
+        </div>
+        <div class="rail-word">LUXEL</div>
+        <div class="rail-rule"></div>
+        <div class="rail-motto">lumen in tenebris</div>
+      </div>
+
+      <div class="rail-nav">
+        {NAV.map((n) => (
+          <a
+            href={n.href}
+            class:list={["nav-item", { active: active === n.key }]}
+            aria-current={active === n.key ? "page" : undefined}
+          >
+            <span class="nav-glyph"></span>
+            <span class="nav-label">
+              <span class="nav-jp">{n.jp}</span>
+              <span class="nav-en">{n.en}</span>
+            </span>
+          </a>
+        ))}
+      </div>
+
+      <div class="rail-sub">
+        <div class="rail-sub-label">外の蔵</div>
+        {SUB_NAV.map((n) => (
+          <a href={n.href} class="nav-item">
+            <span class="nav-glyph"></span>
+            <span class="nav-label">
+              <span class="nav-jp">{n.jp}</span>
+              <span class="nav-en">{n.en}</span>
+            </span>
+          </a>
+        ))}
+      </div>
+
+      <div class="rail-foot">
+        <div class="rail-moon">
+          <span class="moon-disc"></span>
+          <span class="mt">{moon}</span>
+        </div>
+        <span class="meta">LUXEL · v0.1.0</span>
+      </div>
+    </nav>
+
+    <main class="main">
+      <slot />
+    </main>
+
+    <script>
+      // 星の散布（120個、ランダムサイズ/明滅/約6%暖色）
+      const field = document.querySelector<HTMLElement>("[data-sky-stars]");
+      if (field && !field.childElementCount) {
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < 120; i++) {
+          const s = document.createElement("div");
+          s.className = "sky-star";
+          const size = Math.random() * 1.8 + 0.6;
+          s.style.width = s.style.height = size + "px";
+          s.style.left = Math.random() * 100 + "%";
+          s.style.top = Math.random() * 100 + "%";
+          s.style.setProperty("--base", (Math.random() * 0.5 + 0.25).toFixed(2));
+          s.style.setProperty("--tw", (Math.random() * 4 + 3).toFixed(1) + "s");
+          s.style.setProperty("--td", (Math.random() * 5).toFixed(1) + "s");
+          if (Math.random() < 0.06) s.style.background = "var(--warm-200)";
+          frag.appendChild(s);
+        }
+        field.appendChild(frag);
+      }
+
+      // モバイルドロワー開閉
+      const rail = document.querySelector<HTMLElement>("[data-rail]");
+      const scrim = document.querySelector<HTMLElement>("[data-scrim]");
+      const burger = document.querySelector<HTMLButtonElement>("[data-burger]");
+      function setMenu(open: boolean) {
+        rail?.classList.toggle("open", open);
+        scrim?.classList.toggle("show", open);
+        scrim?.classList.toggle("open", open);
+        burger?.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      burger?.addEventListener("click", () =>
+        setMenu(!rail?.classList.contains("open")),
+      );
+      scrim?.addEventListener("click", () => setMenu(false));
+    </script>
+  </body>
+</html>

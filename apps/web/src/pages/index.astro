@@ -1,12 +1,13 @@
 ---
 /**
- * 妖ポータル — ハブ（トップページ）
+ * / — LUXEL コンセプト（ログイン後ホーム）
  *
- * 中央に「妖」の文字を抱えた襖の合わせ目、下に各画面への入口。
- * シネマティック遷移は M9 で本実装。今は静的な構図 + 軽いホバーモーション。
+ * 旧「妖ポータル」襖ハブから差し替え。LUXEL インテリアの入口。
+ * 理念を「ひとつの光を周回する天体（オラリー）」として体験させる。
+ * オラリー体 / タブで active を切替 → 読み出しが連動（client script）。
  */
 
-import AppShell from "../layouts/AppShell.astro";
+import LuxelShell from "../layouts/LuxelShell.astro";
 import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../lib/auth/helpers";
 import { getMemberRoleAliases } from "../lib/repos/membership";
@@ -16,220 +17,168 @@ if (!Astro.locals.session) {
   return Astro.redirect("/login");
 }
 
-const user = Astro.locals.session.user;
 const env = getEnv(Astro.locals);
 const db = createDb(env.DATABASE_URL);
-const userId = (user as { id?: string } | undefined)?.id;
+const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const userIsAdmin = isAdmin(aliases);
 
-const greeting = user?.name ?? "名無しの妖";
+const pillars = [
+  {
+    no: "01",
+    title: "ひとつの灯",
+    lat: "lumen",
+    body: "暗がりにあって、まず最初に灯る光でありたい。誰かが迷い込んだ夜に、ここを目印にできるように。",
+  },
+  {
+    no: "02",
+    title: "観測する場所",
+    lat: "specula",
+    body: "騒がしさより、静けさを。流れて消える言葉ではなく、星を読むように時間をかけて語らえる場所に。",
+  },
+  {
+    no: "03",
+    title: "巡る軌道",
+    lat: "orbita",
+    body: "誰もが自分の軌道を持っている。近づき、離れ、また巡り合う。その距離ごと心地よくいられるように。",
+  },
+];
 
-const entries: { href: string; label: string; desc: string; show: boolean }[] = [
-  { href: "/me", label: "己が記録", desc: "役・入鯖日・自己紹介", show: true },
-  { href: "/wiki", label: "巻物の蔵", desc: "知の集積、編んで残す", show: true },
-  { href: "/admin", label: "運営の間", desc: "役名・メンバー・記録", show: userIsAdmin },
+const cfg = [
+  { dur: "30s", delay: "-4s" },
+  { dur: "46s", delay: "-22s" },
+  { dur: "64s", delay: "-40s" },
 ];
 ---
 
-<AppShell title="妖ポータル" active="home" isAdmin={userIsAdmin}>
-  <section class="fusuma" aria-label="ハブ">
-    <div class="panel panel-left" aria-hidden="true"></div>
-    <div class="seam" aria-hidden="true">
-      <div class="seam-glyph"><span>妖</span></div>
+<LuxelShell title="LUXEL — コンセプト" active="concept" isAdmin={userIsAdmin}>
+  <div class="page page-in">
+    <div class="concept-hero">
+      <div class="mini-core" aria-hidden="true">
+        <div class="mc-halo"></div>
+        <div class="mc-spike h"></div>
+        <div class="mc-spike v"></div>
+        <div class="mc-spike d1"></div>
+        <div class="mc-spike d2"></div>
+        <div class="mc-nucleus"></div>
+      </div>
+      <p class="concept-motto">lumen in tenebris</p>
+      <h1 class="concept-head">
+        暗闇の中に、<br />ただ<span class="accent">ひとつの光</span>を。
+      </h1>
     </div>
-    <div class="panel panel-right" aria-hidden="true"></div>
 
-    <header class="welcome">
-      <span class="kana">ようこそ</span>
-      <h1>{greeting} 殿</h1>
-      <p class="lede">
-        この座より、各々の場所へ参られませ。
+    <div class="manifesto">
+      <p class="mf-lead">
+        LUXEL は、夜空に灯る小さな天文台のようなコミュニティ。
       </p>
-    </header>
+      <p class="mf-body">
+        ここでは、急いで答えを出すことを求めません。星の位置を測るように、ゆっくりと言葉を交わし、
+        それぞれの興味や物語が静かに重なっていく。ひとつの光を囲んで、近い人も遠い人も、それぞれの距離で集う——
+        この場所が、あなたの夜にとって小さな目印になりますように。
+      </p>
+    </div>
 
-    <nav class="entries" aria-label="主な行き先">
-      {entries
-        .filter((e) => e.show)
-        .map((e) => (
-          <a class="entry" href={e.href}>
-            <span class="entry-label">{e.label}</span>
-            <span class="entry-desc">{e.desc}</span>
-            <span class="entry-arrow" aria-hidden="true">→</span>
-          </a>
-        ))}
-    </nav>
-  </section>
-</AppShell>
+    <section class="orrery-block">
+      <div class="ob-eyebrow"><span class="obe-line"></span>三つの軌道<span class="obe-line"></span></div>
+      <div class="orrery-wrap">
+        <div class="orrery" role="group" aria-label="三つの軌道" data-orrery>
+          <div class="orr-ring r1"></div>
+          <div class="orr-ring r2"></div>
+          <div class="orr-ring r3"></div>
 
-<style>
-  .fusuma {
-    position: relative;
-    padding: 3rem 1rem 2rem;
-    min-height: 36rem;
-    isolation: isolate;
-    overflow: hidden;
-    border-radius: 12px;
-  }
+          <div class="orr-core" aria-hidden="true">
+            <span class="oc-halo"></span>
+            <span class="oc-spike h"></span>
+            <span class="oc-spike v"></span>
+            <span class="oc-nucleus"></span>
+          </div>
 
-  /* 二枚の襖。和紙質感を radial-gradient + 細かい線で模す */
-  .panel {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 50%;
-    background:
-      linear-gradient(180deg, rgba(20, 9, 15, 0.35), rgba(31, 18, 25, 0.35)),
-      repeating-linear-gradient(
-        0deg,
-        rgba(184, 149, 64, 0.04) 0,
-        rgba(184, 149, 64, 0.04) 1px,
-        transparent 1px,
-        transparent 4px
-      );
-    pointer-events: none;
-    transition: transform var(--dur-slow) var(--ease-out);
-    z-index: 0;
-  }
-  .panel-left {
-    left: 0;
-    border-right: 1px solid rgba(184, 149, 64, 0.18);
-  }
-  .panel-right {
-    right: 0;
-    border-left: 1px solid rgba(184, 149, 64, 0.18);
-  }
+          {pillars.map((p, i) => (
+            <div
+              class:list={["orr-orbit", `o${i + 1}`, { hot: i === 0 }]}
+              style={`--dur:${cfg[i].dur};--delay:${cfg[i].delay}`}
+              data-orbit={i}
+            >
+              <div class="orr-spin">
+                <div class="orr-body">
+                  <button
+                    class:list={["ob", { active: i === 0 }]}
+                    data-body={i}
+                    aria-label={p.title}
+                  >
+                    <span class="ob-inner" style={`--dur:${cfg[i].dur};--delay:${cfg[i].delay}`}>
+                      <span class="ob-dot"></span>
+                      <span class="ob-no">{p.no}</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
 
-  /* ホバーで合わせ目がほんの少しだけ開く（M9 で大きく開く演出を入れる予定） */
-  .fusuma:hover .panel-left { transform: translateX(-0.25rem); }
-  .fusuma:hover .panel-right { transform: translateX(0.25rem); }
+        <div class="orr-readout" data-readout>
+          <div class="or-no"><span data-or-no>{pillars[0].no}</span> · <span class="or-lat" data-or-lat>{pillars[0].lat}</span></div>
+          <div class="or-title" data-or-title>{pillars[0].title}</div>
+          <p class="or-body" data-or-body>{pillars[0].body}</p>
+          <div class="or-tabs">
+            {pillars.map((p, i) => (
+              <button class:list={["ort", { on: i === 0 }]} data-tab={i}>
+                {p.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
 
-  @media (prefers-reduced-motion: reduce) {
-    .panel { transition: none; }
-    .fusuma:hover .panel-left,
-    .fusuma:hover .panel-right { transform: none; }
-  }
+    <p class="concept-foot">
+      <span class="cf-eye">はじめての方へ</span>
+      「ロール」で自分に合った居場所を選び、「年表」でこれまでの歩みを、
+      「カレンダー」でこれからの集いを覗いてみてください。
+    </p>
+  </div>
 
-  /* 合わせ目の縦光 */
-  .seam {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 2px;
-    background: linear-gradient(
-      180deg,
-      transparent 0%,
-      rgba(224, 198, 132, 0.35) 30%,
-      rgba(224, 198, 132, 0.35) 70%,
-      transparent 100%
-    );
-    z-index: 0;
-  }
-  .seam-glyph {
-    position: absolute;
-    top: 22%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 5rem;
-    height: 5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-base);
-    border: 1px solid var(--color-gold-700);
-    border-radius: 50%;
-    box-shadow:
-      0 0 40px rgba(224, 198, 132, 0.18),
-      inset 0 0 24px rgba(224, 198, 132, 0.08);
-  }
-  .seam-glyph span {
-    font-size: 2.2rem;
-    color: var(--color-gold-100);
-    letter-spacing: 0;
-  }
+  <script is:inline define:vars={{ pillars }}>
+    (function () {
+      const orrery = document.querySelector("[data-orrery]");
+      const readout = document.querySelector("[data-readout]");
+      if (!orrery || !readout) return;
+      const noEl = readout.querySelector("[data-or-no]");
+      const latEl = readout.querySelector("[data-or-lat]");
+      const titleEl = readout.querySelector("[data-or-title]");
+      const bodyEl = readout.querySelector("[data-or-body]");
+      const orbits = Array.from(document.querySelectorAll("[data-orbit]"));
+      const bodies = Array.from(document.querySelectorAll("[data-body]"));
+      const tabs = Array.from(document.querySelectorAll("[data-tab]"));
+      let active = 0;
 
-  /* 中央テキスト */
-  .welcome {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 9rem;
-    text-align: center;
-  }
-  .kana {
-    font-size: 0.75rem;
-    letter-spacing: 0.4em;
-    color: var(--text-muted);
-  }
-  h1 {
-    font-size: clamp(1.8rem, 4vw, 2.6rem);
-    letter-spacing: 0.16em;
-    margin: 0;
-  }
-  .lede {
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-    margin: 0;
-  }
+      function setActive(i) {
+        if (i === active) return;
+        active = i;
+        const p = pillars[i];
+        noEl.textContent = p.no;
+        latEl.textContent = p.lat;
+        titleEl.textContent = p.title;
+        bodyEl.textContent = p.body;
+        orbits.forEach((o, k) => o.classList.toggle("hot", k === i));
+        bodies.forEach((b, k) => b.classList.toggle("active", k === i));
+        tabs.forEach((t, k) => t.classList.toggle("on", k === i));
+        readout.style.animation = "none";
+        void readout.offsetWidth;
+        readout.style.animation = "";
+      }
 
-  /* 入口カード */
-  .entries {
-    position: relative;
-    z-index: 1;
-    margin-top: 3rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.85rem;
-    max-width: 48rem;
-    margin-inline: auto;
-  }
-  .entry {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-    gap: 0.2rem 1rem;
-    padding: 1rem 1.25rem;
-    border: 1px solid var(--color-gold-700);
-    border-radius: 8px;
-    background: rgba(10, 5, 9, 0.55);
-    backdrop-filter: blur(2px);
-    color: var(--text-primary);
-    text-decoration: none;
-    transition:
-      transform var(--dur-fast) var(--ease-out),
-      background var(--dur-fast) var(--ease-out),
-      border-color var(--dur-fast) var(--ease-out);
-  }
-  .entry:hover {
-    transform: translateY(-1px);
-    background: rgba(184, 149, 64, 0.08);
-    border-color: var(--color-gold-500);
-  }
-  .entry-label {
-    font-size: 1.05rem;
-    letter-spacing: 0.08em;
-    color: var(--color-gold-100);
-    grid-column: 1;
-  }
-  .entry-desc {
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-    grid-column: 1;
-  }
-  .entry-arrow {
-    grid-column: 2;
-    grid-row: 1 / -1;
-    align-self: center;
-    color: var(--color-gold-500);
-    font-size: 1.2rem;
-    transition: transform var(--dur-fast) var(--ease-out);
-  }
-  .entry:hover .entry-arrow {
-    transform: translateX(0.25rem);
-  }
-</style>
+      bodies.forEach((b, i) => {
+        b.addEventListener("mouseenter", () => setActive(i));
+        b.addEventListener("focus", () => setActive(i));
+        b.addEventListener("click", () => setActive(i));
+      });
+      tabs.forEach((t, i) => {
+        t.addEventListener("mouseenter", () => setActive(i));
+        t.addEventListener("click", () => setActive(i));
+      });
+    })();
+  </script>
+</LuxelShell>
