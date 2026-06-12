@@ -14,6 +14,7 @@ import {
   listEventsInRange,
   createEvent,
   type EventInput,
+  type Recurrence,
 } from "../../../lib/repos/events";
 
 interface EventBody {
@@ -24,6 +25,8 @@ interface EventBody {
   category?: string | null;
   description?: string | null;
   highlight?: boolean;
+  recurrence?: string | null;
+  recurrenceUntil?: string | null;
 }
 
 /** 受け取った body を検証して EventInput に変換。失敗時は文字列メッセージ。 */
@@ -58,6 +61,25 @@ export function parseEventBody(body: EventBody | null): EventInput | string {
       ? body.description.trim().slice(0, 500)
       : null;
 
+  const recurrence: Recurrence =
+    body.recurrence === "weekly" || body.recurrence === "monthly"
+      ? body.recurrence
+      : "none";
+
+  // until は YYYY-MM-DD（JST のその日まで含む）。none では無視。
+  let recurrenceUntil: Date | null = null;
+  if (recurrence !== "none" && typeof body.recurrenceUntil === "string") {
+    const u = body.recurrenceUntil.trim();
+    if (u.length > 0) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(u)) return "recurrenceUntil must be YYYY-MM-DD";
+      recurrenceUntil = new Date(`${u}T00:00:00+09:00`);
+      if (Number.isNaN(recurrenceUntil.getTime())) return "invalid recurrenceUntil";
+      if (recurrenceUntil.getTime() < startsAt.getTime()) {
+        return "recurrenceUntil must not be before the start date";
+      }
+    }
+  }
+
   return {
     title,
     startsAt,
@@ -65,6 +87,8 @@ export function parseEventBody(body: EventBody | null): EventInput | string {
     category,
     description,
     highlight: body.highlight === true,
+    recurrence,
+    recurrenceUntil,
   };
 }
 
@@ -117,7 +141,20 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
   });
 };
 
-/** クライアントが扱いやすい形に（JST の日付/時刻を分解して返す）。 */
+/** JST 基準で日付部分（YYYY-MM-DD）を取り出す。 */
+function jstDate(d: Date): string {
+  const j = new Date(d.getTime() + 9 * 3600 * 1000);
+  const y = j.getUTCFullYear();
+  const m = String(j.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(j.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * クライアントが扱いやすい形に（JST の日付/時刻を分解して返す）。
+ * year/month/day/time は「その回（occurrence）」の位置。
+ * series* はシリーズ起点で、編集フォームの初期値に使う。
+ */
 function serialize(e: {
   id: string;
   title: string;
@@ -126,6 +163,9 @@ function serialize(e: {
   category: string | null;
   description: string | null;
   highlight: boolean;
+  recurrence: Recurrence;
+  seriesStartsAt: Date;
+  recurrenceUntil: Date | null;
 }) {
   // JST に変換して日・時刻を取り出す
   const jst = new Date(e.startsAt.getTime() + 9 * 3600 * 1000);
@@ -145,5 +185,9 @@ function serialize(e: {
     category: e.category,
     description: e.description,
     highlight: e.highlight,
+    recurrence: e.recurrence,
+    // 編集フォーム用: シリーズ起点の日付と終端
+    seriesDate: jstDate(e.seriesStartsAt),
+    recurrenceUntil: e.recurrenceUntil ? jstDate(e.recurrenceUntil) : null,
   };
 }

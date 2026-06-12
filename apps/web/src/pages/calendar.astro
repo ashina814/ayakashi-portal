@@ -90,6 +90,22 @@ const userIsAdmin = isAdmin(aliases);
             <span>終日（時刻なし）</span>
           </label>
 
+          <div class="cf-row">
+            <label class="cf-field">
+              <span class="cf-label">繰り返し</span>
+              <select name="recurrence">
+                <option value="none">なし（単発）</option>
+                <option value="weekly">毎週</option>
+                <option value="monthly">毎月</option>
+              </select>
+            </label>
+            <label class="cf-field cf-until" data-cf-until hidden>
+              <span class="cf-label">終了日（任意）</span>
+              <input type="date" name="recurrenceUntil" />
+            </label>
+          </div>
+          <div class="cf-recur-hint" data-recur-hint hidden></div>
+
           <label class="cf-field">
             <span class="cf-label">区分</span>
             <input type="text" name="category" list="cal-cats" maxlength="24" placeholder="定例 / 雑談 / 大集会 / システム" />
@@ -124,6 +140,7 @@ const userIsAdmin = isAdmin(aliases);
   )}
 
   <script>
+    type Recurrence = "none" | "weekly" | "monthly";
     interface ApiEvent {
       id: string;
       title: string;
@@ -135,6 +152,11 @@ const userIsAdmin = isAdmin(aliases);
       category: string | null;
       description: string | null;
       highlight: boolean;
+      recurrence: Recurrence;
+      /** シリーズ起点の日付（YYYY-MM-DD, JST）— 編集フォーム用 */
+      seriesDate: string;
+      /** シリーズ終端（YYYY-MM-DD）or null */
+      recurrenceUntil: string | null;
     }
 
     const root = document.querySelector<HTMLElement>(".page[data-admin]");
@@ -204,7 +226,8 @@ const userIsAdmin = isAdmin(aliases);
         html += `<span class="dn">${d}</span>`;
         html += `<span class="moon" style="opacity:${d % 7 === 6 ? 0.9 : 0.35}"></span>`;
         for (const ev of evs) {
-          html += `<div class="cal-ev${ev.highlight ? " warm" : ""}" data-ev-id="${ev.id}">${esc(ev.title)}</div>`;
+          const recur = ev.recurrence !== "none" ? '<span class="ev-recur" aria-hidden="true">↻</span>' : "";
+          html += `<div class="cal-ev${ev.highlight ? " warm" : ""}" data-ev-id="${ev.id}">${recur}${esc(ev.title)}</div>`;
         }
         if (isAdmin) html += '<span class="cal-cell-add" aria-hidden="true">＋</span>';
         html += "</div>";
@@ -227,6 +250,9 @@ const userIsAdmin = isAdmin(aliases);
         al += `<div class="agenda-title"${ev.highlight ? ' style="color:var(--warm-200)"' : ""}>${esc(ev.title)}</div>`;
         if (ev.description) al += `<div class="agenda-meta">${esc(ev.description)}</div>`;
         if (ev.category) al += `<span class="agenda-chip">${esc(ev.category)}</span>`;
+        if (ev.recurrence !== "none") {
+          al += `<span class="agenda-chip recur">↻ ${ev.recurrence === "weekly" ? "毎週" : "毎月"}</span>`;
+        }
         al += "</div></div>";
       }
       agendaList.innerHTML =
@@ -263,18 +289,25 @@ const userIsAdmin = isAdmin(aliases);
         statusEl.textContent = "";
         form.reset();
 
-        const f = form.elements as unknown as Record<string, HTMLInputElement | HTMLTextAreaElement>;
+        const f = form.elements as unknown as Record<
+          string,
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        >;
         (f.title as HTMLInputElement).value = data.title ?? "";
         const y = data.year ?? cursor.getFullYear();
         const m = (data.month ?? cursor.getMonth() + 1);
         const d = data.day ?? today.getDate();
-        (f.date as HTMLInputElement).value = `${y}-${pad(m)}-${pad(d)}`;
+        // 繰り返しはシリーズ起点（seriesDate）を基準に編集する。
+        (f.date as HTMLInputElement).value = data.seriesDate ?? `${y}-${pad(m)}-${pad(d)}`;
         (f.time as HTMLInputElement).value = data.time ?? "21:00";
         (f.allDay as HTMLInputElement).checked = data.allDay ?? false;
         (f.category as HTMLInputElement).value = data.category ?? "";
         (f.description as HTMLTextAreaElement).value = data.description ?? "";
         (f.highlight as HTMLInputElement).checked = data.highlight ?? false;
         (f.time as HTMLInputElement).disabled = data.allDay ?? false;
+        (f.recurrence as HTMLSelectElement).value = data.recurrence ?? "none";
+        (f.recurrenceUntil as HTMLInputElement).value = data.recurrenceUntil ?? "";
+        updateRecurUI();
 
         scrim.hidden = false;
         (f.title as HTMLInputElement).focus();
@@ -288,6 +321,41 @@ const userIsAdmin = isAdmin(aliases);
         (form.elements.namedItem("time") as HTMLInputElement).disabled =
           (e.target as HTMLInputElement).checked;
       });
+
+      // 繰り返し設定: 種別/日付に応じて終了日入力と説明文を出し分け
+      const untilWrap = document.querySelector<HTMLElement>("[data-cf-until]")!;
+      const recurHint = document.querySelector<HTMLElement>("[data-recur-hint]")!;
+      function updateRecurUI() {
+        const rec = (form.elements.namedItem("recurrence") as HTMLSelectElement).value;
+        const dateVal = (form.elements.namedItem("date") as HTMLInputElement).value;
+        if (rec === "none") {
+          untilWrap.hidden = true;
+          recurHint.hidden = true;
+          return;
+        }
+        untilWrap.hidden = false;
+        let label: string;
+        if (dateVal) {
+          const [yy, mo, dd] = dateVal.split("-").map(Number);
+          const dow = DOWS[new Date(yy!, mo! - 1, dd!).getDay()]!;
+          label =
+            rec === "weekly"
+              ? `毎週 ${dow}曜日 に繰り返します`
+              : `毎月 ${dd} 日 に繰り返します`;
+        } else {
+          label = rec === "weekly" ? "毎週この曜日に繰り返します" : "毎月この日に繰り返します";
+        }
+        recurHint.textContent = label;
+        recurHint.hidden = false;
+      }
+      (form.elements.namedItem("recurrence") as HTMLSelectElement).addEventListener(
+        "change",
+        updateRecurUI,
+      );
+      (form.elements.namedItem("date") as HTMLInputElement).addEventListener(
+        "change",
+        updateRecurUI,
+      );
 
       // ＋追加ボタン
       document.querySelector("[data-cal-add]")?.addEventListener("click", () =>
@@ -325,6 +393,11 @@ const userIsAdmin = isAdmin(aliases);
         e.preventDefault();
         const fd = new FormData(form);
         const allDay = fd.get("allDay") === "on";
+        const recurrence = String(fd.get("recurrence") ?? "none");
+        const recurrenceUntil =
+          recurrence === "none"
+            ? null
+            : String(fd.get("recurrenceUntil") ?? "").trim() || null;
         const payload = {
           title: String(fd.get("title") ?? "").trim(),
           date: String(fd.get("date") ?? ""),
@@ -333,6 +406,8 @@ const userIsAdmin = isAdmin(aliases);
           category: String(fd.get("category") ?? "").trim() || null,
           description: String(fd.get("description") ?? "").trim() || null,
           highlight: fd.get("highlight") === "on",
+          recurrence,
+          recurrenceUntil,
         };
         statusEl.textContent = "保存中…";
         const url = editingId
@@ -353,7 +428,12 @@ const userIsAdmin = isAdmin(aliases);
 
       deleteBtn.addEventListener("click", async () => {
         if (!editingId) return;
-        if (!window.confirm("この集いを消しますか？")) return;
+        const target = events.find((x) => x.id === editingId);
+        const msg =
+          target && target.recurrence !== "none"
+            ? "この繰り返しの集いをシリーズごと消しますか？"
+            : "この集いを消しますか？";
+        if (!window.confirm(msg)) return;
         const res = await fetch(`/api/calendar/events/${editingId}`, { method: "DELETE" });
         if (!res.ok) {
           statusEl.textContent = `削除失敗: ${res.status}`;
@@ -401,6 +481,12 @@ const userIsAdmin = isAdmin(aliases);
     .agenda-row.editable { cursor: pointer; border-radius: 8px; transition: background 0.2s; }
     .agenda-row.editable:hover { background: rgba(122, 162, 255, 0.05); }
     .agenda-empty { color: var(--silver-700); font-size: 14px; padding: 18px 0; }
+    .ev-recur { opacity: 0.65; margin-right: 3px; font-size: 0.85em; }
+    .agenda-chip.recur {
+      margin-left: 6px;
+      color: var(--star-200);
+      border-color: var(--star-400);
+    }
 
     /* ── 編集モーダル（LUXEL 調） ── */
     .cal-modal-scrim {
@@ -447,7 +533,8 @@ const userIsAdmin = isAdmin(aliases);
       text-transform: uppercase; color: var(--star-400);
     }
     .cf-field input,
-    .cf-field textarea {
+    .cf-field textarea,
+    .cf-field select {
       background: rgba(4, 6, 15, 0.5);
       border: 1px solid var(--hair);
       border-radius: 8px;
@@ -457,8 +544,20 @@ const userIsAdmin = isAdmin(aliases);
       padding: 9px 11px;
       outline: none;
     }
+    .cf-field select { cursor: pointer; }
+    .cf-field select option { background: #0a1026; color: var(--star-100); }
     .cf-field input:focus,
-    .cf-field textarea:focus { border-color: var(--star-400); }
+    .cf-field textarea:focus,
+    .cf-field select:focus { border-color: var(--star-400); }
+    .cf-recur-hint {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      color: var(--star-300);
+      margin-top: -6px;
+    }
+    .cf-recur-hint[hidden] { display: none; }
+    .cf-until[hidden] { display: none; }
     .cf-field textarea { resize: vertical; }
     .cf-field input[disabled] { opacity: 0.4; }
     .cf-check {
