@@ -1,0 +1,72 @@
+---
+/**
+ * /roles — ロール説明（Roles）
+ *
+ * コミュニティのロールを「星の等級」になぞらえて紹介。静的ページ。
+ * roles はプレースホルダー。後で roles テーブル / Discord 同期に接続する。
+ */
+
+import LuxelShell from "../layouts/LuxelShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../lib/auth/helpers";
+import { getMemberRoleAliases } from "../lib/repos/membership";
+import { isAdmin } from "../lib/auth/permissions";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+const userIsAdmin = isAdmin(aliases);
+
+const roles = [
+  { name: "灯守", en: "Lightkeeper", mag: "α", color: "#ffe6c2", count: "3", desc: "この場所の灯を守る運営。規約の番人であり、最終的な判断を担う。困ったときに、まず頼れる存在。", perks: ["全権限", "規約改定", "ロール付与", "最終判断"] },
+  { name: "観測者", en: "Observer", mag: "β", color: "#9fbcff", count: "8", desc: "催しの企画や日々の見守りを担うモデレーター。星を観るように場の流れを読み、静けさを保つ。", perks: ["催し企画", "見守り", "告知", "チャンネル管理"] },
+  { name: "航海士", en: "Voyager", mag: "γ", color: "#7aa2ff", count: "42", desc: "一定の期間を共にし、軌道が定まった常連メンバー。多くのチャンネルが開放され、企画にも参加できる。", perks: ["全チャンネル", "企画参加", "絵文字追加"] },
+  { name: "巡礼者", en: "Pilgrim", mag: "δ", color: "#8ea2c6", count: "120+", desc: "ここに辿り着いたばかりの新しい仲間。まずは自由に巡って、心地よい距離を見つけてほしい。", perks: ["閲覧", "雑談", "自己紹介"] },
+  { name: "客星", en: "Guest Star", mag: "✦", color: "#b9d0ff", count: "—", desc: "催しのときだけ訪れる賓客。普段は別の空にいながら、特別な夜にこの観測所を明るく照らす。", perks: ["催し限定", "特別チャンネル"] },
+];
+---
+
+<LuxelShell title="LUXEL — ロール説明" active="roles" isAdmin={userIsAdmin}>
+  <div class="page page-in">
+    <header class="phead">
+      <div class="eyebrow">Roles</div>
+      <h1 class="ptitle">ロール説明</h1>
+      <div class="psub">every star has its magnitude</div>
+      <div class="phead-rule"></div>
+    </header>
+
+    <p class="roles-intro">
+      LUXEL のロールは、星の「等級」になぞらえています。明るさの大小ではなく、この空での距離と役割のちがい。
+      誰もが自分の軌道を持っています。
+    </p>
+
+    <div class="roles-list">
+      {roles.map((r) => (
+        <div class="panel role" style={`--rc:${r.color}`}>
+          <div class="role-badge">
+            <div class="role-ring"></div>
+            <div class="role-ring r2"></div>
+            <div class="role-star"></div>
+            <span class="role-mag">{r.mag}</span>
+          </div>
+          <div class="role-main">
+            <div class="role-name-row">
+              <span class="role-name">{r.name}</span>
+              <span class="role-en">{r.en}</span>
+              <span class="role-count">{r.count} 名</span>
+            </div>
+            <p class="role-desc">{r.desc}</p>
+            <div class="role-perks">
+              {r.perks.map((p) => <span class="role-perk">{p}</span>)}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</LuxelShell>

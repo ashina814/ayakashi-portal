@@ -1,0 +1,205 @@
+---
+/**
+ * /calendar — カレンダー（Almanac）
+ *
+ * これからの集いを月暦 + アジェンダで見せる。当月をサーバーで描画し、
+ * 前月/今月/翌月のナビは client script でグリッド/アジェンダを再構築する。
+ *
+ * events は「当月の日番号」をキーにしたデモデータ（handoff 準拠）。
+ * 本番では実日付（ISO）でイベントを引く構造へ要置換。
+ */
+
+import LuxelShell from "../layouts/LuxelShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../lib/auth/helpers";
+import { getMemberRoleAliases } from "../lib/repos/membership";
+import { isAdmin } from "../lib/auth/permissions";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+const userIsAdmin = isAdmin(aliases);
+
+interface Ev {
+  t: string;
+  time: string;
+  meta: string;
+  chip: string;
+  warm: boolean;
+}
+const events: Record<number, Ev[]> = {
+  6: [{ t: "新月の観測会", time: "21:00", meta: "ボイスチャンネルに集合。今月いちばん暗い夜に。", chip: "定例", warm: false }],
+  13: [{ t: "コンセプト読書会", time: "22:00", meta: "おすすめの一冊を持ち寄って静かに語らう夜。", chip: "雑談", warm: false }],
+  20: [{ t: "満月祭", time: "20:00", meta: "月いちの大きな集い。新メンバー歓迎の灯をともします。", chip: "大集会", warm: true }],
+  27: [{ t: "bot『Astra』定期更新", time: "終日", meta: "ロール周りの調整。詳細はお知らせにて。", chip: "システム", warm: false }],
+};
+
+const MONTHS_JP = ["睦月", "如月", "弥生", "卯月", "皐月", "水無月", "文月", "葉月", "長月", "神無月", "霜月", "師走"];
+const DOWS = ["日", "月", "火", "水", "木", "金", "土"];
+
+// SSR: 当月
+const today = new Date();
+const year = today.getFullYear();
+const month = today.getMonth();
+const firstDow = new Date(year, month, 1).getDay();
+const daysInMonth = new Date(year, month + 1, 0).getDate();
+const cells: (number | null)[] = [];
+for (let i = 0; i < firstDow; i++) cells.push(null);
+for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+const agendaItems = Object.keys(events)
+  .map(Number)
+  .sort((a, b) => a - b)
+  .map((d) => ({ d, dow: DOWS[new Date(year, month, d).getDay()], evs: events[d] }));
+---
+
+<LuxelShell title="LUXEL — カレンダー" active="calendar" isAdmin={userIsAdmin}>
+  <div class="page page-wide page-in">
+    <header class="phead">
+      <div class="eyebrow">Almanac</div>
+      <h1 class="ptitle">カレンダー</h1>
+      <div class="psub">the gatherings to come</div>
+      <div class="phead-rule"></div>
+    </header>
+
+    <div class="cal-top">
+      <div class="cal-month" data-cal-month>
+        {MONTHS_JP[month]}<span class="yr">{year} · {String(month + 1).padStart(2, "0")}</span>
+      </div>
+      <div class="cal-nav">
+        <button class="cal-btn" data-cal-prev aria-label="前の月">‹</button>
+        <button class="cal-btn" data-cal-today aria-label="今月">●</button>
+        <button class="cal-btn" data-cal-next aria-label="次の月">›</button>
+      </div>
+    </div>
+
+    <div class="cal-grid-wrap">
+      <div class="cal-grid" data-cal-grid>
+        {DOWS.map((w, i) => (
+          <div class:list={["cal-dow", { sun: i === 0, sat: i === 6 }]}>{w}</div>
+        ))}
+        {cells.map((d, i) =>
+          d === null ? (
+            <div class="cal-cell empty"></div>
+          ) : (
+            <div class:list={["cal-cell", { today: d === today.getDate() }]}>
+              <span class="dn">{d}</span>
+              <span class="moon" style={`opacity:${d % 7 === 6 ? 0.9 : 0.35}`}></span>
+              {(events[d] || []).map((ev) => (
+                <div class:list={["cal-ev", { warm: ev.warm }]}>{ev.t}</div>
+              ))}
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+
+    <div class="agenda agenda-side">
+      <div class="agenda-h" data-agenda-h>今月の集い · {agendaItems.length} 件</div>
+      <div data-agenda-list>
+        {agendaItems.map(({ d, dow, evs }) =>
+          evs.map((ev) => (
+            <div class="agenda-row">
+              <div class="agenda-date">
+                <div class="d">{d}</div>
+                <div class="w">{dow}</div>
+              </div>
+              <div class="agenda-body">
+                <div class="agenda-time">{ev.time}</div>
+                <div class="agenda-title" style={ev.warm ? "color:var(--warm-200)" : undefined}>{ev.t}</div>
+                <div class="agenda-meta">{ev.meta}</div>
+                <span class="agenda-chip">{ev.chip}</span>
+              </div>
+            </div>
+          )),
+        )}
+      </div>
+    </div>
+  </div>
+
+  <script is:inline define:vars={{ events, MONTHS_JP, DOWS }}>
+    (function () {
+      const grid = document.querySelector("[data-cal-grid]");
+      const monthEl = document.querySelector("[data-cal-month]");
+      const agendaH = document.querySelector("[data-agenda-h]");
+      const agendaList = document.querySelector("[data-agenda-list]");
+      if (!grid) return;
+
+      const today = new Date();
+      let cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+
+      const esc = (s) =>
+        String(s).replace(/[&<>"]/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+
+      function render() {
+        const year = cursor.getFullYear();
+        const month = cursor.getMonth();
+        const firstDow = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const isThisMonth =
+          year === today.getFullYear() && month === today.getMonth();
+
+        monthEl.innerHTML =
+          esc(MONTHS_JP[month]) +
+          '<span class="yr">' +
+          year +
+          " · " +
+          String(month + 1).padStart(2, "0") +
+          "</span>";
+
+        let html = "";
+        DOWS.forEach((w, i) => {
+          const cls = i === 0 ? " sun" : i === 6 ? " sat" : "";
+          html += '<div class="cal-dow' + cls + '">' + w + "</div>";
+        });
+        for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell empty"></div>';
+        for (let d = 1; d <= daysInMonth; d++) {
+          const isToday = isThisMonth && d === today.getDate();
+          const evs = events[d] || [];
+          html += '<div class="cal-cell' + (isToday ? " today" : "") + '">';
+          html += '<span class="dn">' + d + "</span>";
+          html += '<span class="moon" style="opacity:' + (d % 7 === 6 ? 0.9 : 0.35) + '"></span>';
+          evs.forEach((ev) => {
+            html += '<div class="cal-ev' + (ev.warm ? " warm" : "") + '">' + esc(ev.t) + "</div>";
+          });
+          html += "</div>";
+        }
+        grid.innerHTML = html;
+
+        // agenda
+        const items = Object.keys(events)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .map((d) => ({ d, dow: DOWS[new Date(year, month, d).getDay()], evs: events[d] }));
+        let count = 0;
+        let al = "";
+        items.forEach(({ d, dow, evs }) => {
+          evs.forEach((ev) => {
+            count++;
+            al += '<div class="agenda-row"><div class="agenda-date"><div class="d">' + d + '</div><div class="w">' + dow + '</div></div><div class="agenda-body"><div class="agenda-time">' + esc(ev.time) + '</div><div class="agenda-title"' + (ev.warm ? ' style="color:var(--warm-200)"' : "") + ">" + esc(ev.t) + '</div><div class="agenda-meta">' + esc(ev.meta) + '</div><span class="agenda-chip">' + esc(ev.chip) + "</span></div></div>";
+          });
+        });
+        agendaH.textContent = "今月の集い · " + count + " 件";
+        agendaList.innerHTML = al;
+      }
+
+      function shift(n) {
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + n, 1);
+        render();
+      }
+      document.querySelector("[data-cal-prev]").addEventListener("click", () => shift(-1));
+      document.querySelector("[data-cal-next]").addEventListener("click", () => shift(1));
+      document.querySelector("[data-cal-today]").addEventListener("click", () => {
+        cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+        render();
+      });
+    })();
+  </script>
+</LuxelShell>
