@@ -14,6 +14,7 @@ import {
   listEventsInRange,
   createEvent,
   type EventInput,
+  type OverrideInput,
   type Recurrence,
 } from "../../../lib/repos/events";
 
@@ -92,6 +93,29 @@ export function parseEventBody(body: EventBody | null): EventInput | string {
   };
 }
 
+/**
+ * 「この回だけ」差し替え body を検証。occurrenceDate（突合キー）と差し替え内容を返す。
+ * 日付は occurrenceDate に固定（その回を別日へは動かさない）。失敗時は文字列。
+ */
+export function parseOverrideBody(
+  body: EventBody | null,
+): { occurrenceDate: string; input: OverrideInput } | string {
+  const parsed = parseEventBody(body);
+  if (typeof parsed === "string") return parsed;
+  // override では recurrence/until は意味を持たない（無視）。
+  return {
+    occurrenceDate: (body as { date?: string }).date!, // parseEventBody で検証済み
+    input: {
+      title: parsed.title,
+      startsAt: parsed.startsAt,
+      allDay: parsed.allDay,
+      category: parsed.category,
+      description: parsed.description,
+      highlight: parsed.highlight,
+    },
+  };
+}
+
 export const GET: APIRoute = async ({ locals, url }) => {
   const userId = (locals.session?.user as { id?: string } | undefined)?.id;
   if (!userId) return new Response("Unauthorized", { status: 401 });
@@ -105,13 +129,18 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const env = getEnv(locals);
   const db = createDb(env.DATABASE_URL);
 
+  // 中止（cancelled）の回は admin だけに薄く見せる。一般には返さない。
+  const aliases = await getMemberRoleAliases(db, userId);
+  const userIsAdmin = isAdmin(aliases);
+
   // JST のその月 [1日 00:00, 翌月1日 00:00)
   const from = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+09:00`);
   const to = new Date(from);
   to.setMonth(to.getMonth() + 1);
 
   const events = await listEventsInRange(db, from, to);
-  return new Response(JSON.stringify({ events: events.map(serialize) }), {
+  const visible = userIsAdmin ? events : events.filter((e) => !e.cancelled);
+  return new Response(JSON.stringify({ events: visible.map(serialize) }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
@@ -150,10 +179,19 @@ function jstDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** JST の HH:MM を取り出す。 */
+function jstTime(d: Date): string {
+  const j = new Date(d.getTime() + 9 * 3600 * 1000);
+  const hh = String(j.getUTCHours()).padStart(2, "0");
+  const mm = String(j.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 /**
  * クライアントが扱いやすい形に（JST の日付/時刻を分解して返す）。
- * year/month/day/time は「その回（occurrence）」の位置。
- * series* はシリーズ起点で、編集フォームの初期値に使う。
+ * year/month/day/time/allDay/category… は「その回（override 反映後）」の値。
+ * seriesDate / series.* はシリーズ起点で「シリーズ全体」編集の初期値に使う。
+ * occurrenceDate は「この回だけ」操作の突合キー。
  */
 function serialize(e: {
   id: string;
@@ -166,28 +204,51 @@ function serialize(e: {
   recurrence: Recurrence;
   seriesStartsAt: Date;
   recurrenceUntil: Date | null;
+  occurrenceDate: string;
+  isOverride: boolean;
+  cancelled: boolean;
+  series: {
+    title: string;
+    startsAt: Date;
+    allDay: boolean;
+    category: string | null;
+    description: string | null;
+    highlight: boolean;
+  } | null;
 }) {
   // JST に変換して日・時刻を取り出す
   const jst = new Date(e.startsAt.getTime() + 9 * 3600 * 1000);
   const y = jst.getUTCFullYear();
   const m = jst.getUTCMonth() + 1;
   const d = jst.getUTCDate();
-  const hh = String(jst.getUTCHours()).padStart(2, "0");
-  const mm = String(jst.getUTCMinutes()).padStart(2, "0");
   return {
     id: e.id,
     title: e.title,
     year: y,
     month: m,
     day: d,
-    time: e.allDay ? null : `${hh}:${mm}`,
+    time: e.allDay ? null : jstTime(e.startsAt),
     allDay: e.allDay,
     category: e.category,
     description: e.description,
     highlight: e.highlight,
     recurrence: e.recurrence,
+    occurrenceDate: e.occurrenceDate,
+    isOverride: e.isOverride,
+    cancelled: e.cancelled,
     // 編集フォーム用: シリーズ起点の日付と終端
     seriesDate: jstDate(e.seriesStartsAt),
     recurrenceUntil: e.recurrenceUntil ? jstDate(e.recurrenceUntil) : null,
+    // 「シリーズ全体」編集の初期値（繰り返しのみ）
+    series: e.series
+      ? {
+          title: e.series.title,
+          time: e.series.allDay ? null : jstTime(e.series.startsAt),
+          allDay: e.series.allDay,
+          category: e.series.category,
+          description: e.series.description,
+          highlight: e.series.highlight,
+        }
+      : null,
   };
 }

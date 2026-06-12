@@ -69,6 +69,23 @@ const userIsAdmin = isAdmin(aliases);
           <button class="cal-modal-x" data-modal-close aria-label="閉じる">×</button>
         </div>
         <form class="cal-form" data-modal-form>
+          <div class="cf-scope" data-cf-scope hidden>
+            <span class="cf-label">編集範囲</span>
+            <div class="cf-scope-opts">
+              <label class="cf-scope-opt">
+                <input type="radio" name="scope" value="series" checked />
+                <span>シリーズ全体</span>
+              </label>
+              <label class="cf-scope-opt">
+                <input type="radio" name="scope" value="single" />
+                <span>この回だけ</span>
+              </label>
+            </div>
+          </div>
+          <div class="cf-cancelled-note" data-cancelled-note hidden>
+            この回は<strong>中止</strong>中です。下の「この回を復活」で元に戻せます。
+          </div>
+
           <label class="cf-field">
             <span class="cf-label">題</span>
             <input type="text" name="title" maxlength="120" required placeholder="例: 新月の観測会" />
@@ -90,7 +107,7 @@ const userIsAdmin = isAdmin(aliases);
             <span>終日（時刻なし）</span>
           </label>
 
-          <div class="cf-row">
+          <div class="cf-row" data-recur-row>
             <label class="cf-field">
               <span class="cf-label">繰り返し</span>
               <select name="recurrence">
@@ -130,6 +147,7 @@ const userIsAdmin = isAdmin(aliases);
           <div class="cf-status" data-modal-status></div>
           <div class="cf-actions">
             <button type="button" class="cf-delete" data-modal-delete hidden>削除</button>
+            <button type="button" class="cf-revert" data-modal-revert hidden>この回を復活</button>
             <span class="cf-spacer"></span>
             <button type="button" class="cf-cancel" data-modal-close>取消</button>
             <button type="submit" class="cf-save">記す</button>
@@ -141,6 +159,14 @@ const userIsAdmin = isAdmin(aliases);
 
   <script>
     type Recurrence = "none" | "weekly" | "monthly";
+    interface SeriesBase {
+      title: string;
+      time: string | null;
+      allDay: boolean;
+      category: string | null;
+      description: string | null;
+      highlight: boolean;
+    }
     interface ApiEvent {
       id: string;
       title: string;
@@ -153,10 +179,18 @@ const userIsAdmin = isAdmin(aliases);
       description: string | null;
       highlight: boolean;
       recurrence: Recurrence;
-      /** シリーズ起点の日付（YYYY-MM-DD, JST）— 編集フォーム用 */
+      /** この回の JST 日付（YYYY-MM-DD）— 「この回だけ」操作の突合キー */
+      occurrenceDate: string;
+      /** この回が override を持つか */
+      isOverride: boolean;
+      /** この回が中止か（admin のみ受信） */
+      cancelled: boolean;
+      /** シリーズ起点の日付（YYYY-MM-DD, JST）— 「シリーズ全体」編集用 */
       seriesDate: string;
       /** シリーズ終端（YYYY-MM-DD）or null */
       recurrenceUntil: string | null;
+      /** シリーズ元の値（繰り返しのみ）— 「シリーズ全体」編集の初期値 */
+      series: SeriesBase | null;
     }
 
     const root = document.querySelector<HTMLElement>(".page[data-admin]");
@@ -227,23 +261,27 @@ const userIsAdmin = isAdmin(aliases);
         html += `<span class="moon" style="opacity:${d % 7 === 6 ? 0.9 : 0.35}"></span>`;
         for (const ev of evs) {
           const recur = ev.recurrence !== "none" ? '<span class="ev-recur" aria-hidden="true">↻</span>' : "";
-          html += `<div class="cal-ev${ev.highlight ? " warm" : ""}" data-ev-id="${ev.id}">${recur}${esc(ev.title)}</div>`;
+          const cls =
+            (ev.highlight ? " warm" : "") +
+            (ev.cancelled ? " cancelled" : "") +
+            (ev.isOverride && !ev.cancelled ? " overridden" : "");
+          html += `<div class="cal-ev${cls}" data-ev-id="${ev.id}" data-occ="${ev.occurrenceDate}">${recur}${esc(ev.title)}</div>`;
         }
         if (isAdmin) html += '<span class="cal-cell-add" aria-hidden="true">＋</span>';
         html += "</div>";
       }
       grid.innerHTML = html;
 
-      // agenda (sorted by day then time)
-      const sorted = [...events].sort(
-        (a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? ""),
-      );
+      // agenda（中止は除外。日→時刻でソート）
+      const sorted = events
+        .filter((ev) => !ev.cancelled)
+        .sort((a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? ""));
       agendaH.textContent = `今月の集い · ${sorted.length} 件`;
       let al = "";
       for (const ev of sorted) {
         const dow = DOWS[new Date(year, month, ev.day).getDay()]!;
         const timeLabel = ev.allDay ? "終日" : ev.time ?? "";
-        al += `<div class="agenda-row${isAdmin ? " editable" : ""}" data-ev-id="${ev.id}">`;
+        al += `<div class="agenda-row${isAdmin ? " editable" : ""}" data-ev-id="${ev.id}" data-occ="${ev.occurrenceDate}">`;
         al += `<div class="agenda-date"><div class="d">${ev.day}</div><div class="w">${dow}</div></div>`;
         al += '<div class="agenda-body">';
         al += `<div class="agenda-time">${esc(timeLabel)}</div>`;
@@ -277,37 +315,161 @@ const userIsAdmin = isAdmin(aliases);
       const titleEl = document.querySelector<HTMLElement>("[data-modal-title]")!;
       const statusEl = document.querySelector<HTMLElement>("[data-modal-status]")!;
       const deleteBtn = document.querySelector<HTMLButtonElement>("[data-modal-delete]")!;
-      let editingId: string | null = null;
+      const revertBtn = document.querySelector<HTMLButtonElement>("[data-modal-revert]")!;
+      const scopeWrap = document.querySelector<HTMLElement>("[data-cf-scope]")!;
+      const cancelledNote = document.querySelector<HTMLElement>("[data-cancelled-note]")!;
+      const recurRow = document.querySelector<HTMLElement>("[data-recur-row]")!;
+      // 編集中の occurrence（新規作成時は null）
+      let editing: ApiEvent | null = null;
 
       function pad(n: number) {
         return String(n).padStart(2, "0");
       }
+      const f = form.elements as unknown as Record<
+        string,
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >;
+
+      function getScope(): "series" | "single" {
+        return (form.elements.namedItem("scope") as RadioNodeList).value === "single"
+          ? "single"
+          : "series";
+      }
+      function setScope(v: "series" | "single") {
+        form.querySelectorAll<HTMLInputElement>('input[name="scope"]').forEach((r) => {
+          r.checked = r.value === v;
+        });
+      }
+
+      interface FormVals {
+        title: string;
+        date: string;
+        time: string;
+        allDay: boolean;
+        category: string;
+        description: string;
+        highlight: boolean;
+        recurrence: Recurrence;
+        until: string;
+      }
+      function fillForm(v: FormVals) {
+        (f.title as HTMLInputElement).value = v.title;
+        (f.date as HTMLInputElement).value = v.date;
+        (f.time as HTMLInputElement).value = v.time;
+        (f.allDay as HTMLInputElement).checked = v.allDay;
+        (f.category as HTMLInputElement).value = v.category;
+        (f.description as HTMLTextAreaElement).value = v.description;
+        (f.highlight as HTMLInputElement).checked = v.highlight;
+        (f.time as HTMLInputElement).disabled = v.allDay;
+        (f.recurrence as HTMLSelectElement).value = v.recurrence;
+        (f.recurrenceUntil as HTMLInputElement).value = v.until;
+      }
+
+      /** edit 中: 選択スコープに応じてフォームの値・ロック・ボタンを切り替える。 */
+      function applyScope() {
+        if (!editing) return;
+        const recurring = editing.recurrence !== "none";
+        const single = recurring && getScope() === "single";
+        const sb = editing.series;
+
+        if (single) {
+          // この回だけ: 反映後（override 適用後）の値。日付は occurrenceDate に固定。
+          fillForm({
+            title: editing.title,
+            date: editing.occurrenceDate,
+            time: editing.time ?? "21:00",
+            allDay: editing.allDay,
+            category: editing.category ?? "",
+            description: editing.description ?? "",
+            highlight: editing.highlight,
+            recurrence: editing.recurrence,
+            until: editing.recurrenceUntil ?? "",
+          });
+        } else if (recurring) {
+          // シリーズ全体: シリーズ元の値。日付はシリーズ起点。
+          fillForm({
+            title: sb?.title ?? editing.title,
+            date: editing.seriesDate,
+            time: (sb ? sb.time : editing.time) ?? "21:00",
+            allDay: sb ? sb.allDay : editing.allDay,
+            category: (sb ? sb.category : editing.category) ?? "",
+            description: (sb ? sb.description : editing.description) ?? "",
+            highlight: sb ? sb.highlight : editing.highlight,
+            recurrence: editing.recurrence,
+            until: editing.recurrenceUntil ?? "",
+          });
+        } else {
+          // 単発
+          fillForm({
+            title: editing.title,
+            date: editing.seriesDate,
+            time: editing.time ?? "21:00",
+            allDay: editing.allDay,
+            category: editing.category ?? "",
+            description: editing.description ?? "",
+            highlight: editing.highlight,
+            recurrence: "none",
+            until: "",
+          });
+        }
+
+        // 繰り返し設定: この回だけのときは隠す（日付も固定）
+        recurRow.hidden = single;
+        (f.date as HTMLInputElement).disabled = single;
+        if (single) {
+          recurHint.hidden = true;
+        } else {
+          updateRecurUI();
+        }
+
+        // ボタン
+        deleteBtn.textContent = single
+          ? "この回だけ中止"
+          : recurring
+            ? "シリーズを削除"
+            : "削除";
+        deleteBtn.hidden = single && editing.cancelled; // 中止済みは復活のみ
+        revertBtn.hidden = !(single && editing.isOverride);
+        cancelledNote.hidden = !(single && editing.cancelled);
+      }
+
       function openModal(mode: "create" | "edit", data: Partial<ApiEvent> & { day?: number }) {
-        editingId = mode === "edit" ? data.id ?? null : null;
-        titleEl.textContent = mode === "edit" ? "集いを書き換える" : "集いを記す";
-        deleteBtn.hidden = mode !== "edit";
         statusEl.textContent = "";
         form.reset();
+        (f.date as HTMLInputElement).disabled = false;
 
-        const f = form.elements as unknown as Record<
-          string,
-          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-        >;
-        (f.title as HTMLInputElement).value = data.title ?? "";
-        const y = data.year ?? cursor.getFullYear();
-        const m = (data.month ?? cursor.getMonth() + 1);
-        const d = data.day ?? today.getDate();
-        // 繰り返しはシリーズ起点（seriesDate）を基準に編集する。
-        (f.date as HTMLInputElement).value = data.seriesDate ?? `${y}-${pad(m)}-${pad(d)}`;
-        (f.time as HTMLInputElement).value = data.time ?? "21:00";
-        (f.allDay as HTMLInputElement).checked = data.allDay ?? false;
-        (f.category as HTMLInputElement).value = data.category ?? "";
-        (f.description as HTMLTextAreaElement).value = data.description ?? "";
-        (f.highlight as HTMLInputElement).checked = data.highlight ?? false;
-        (f.time as HTMLInputElement).disabled = data.allDay ?? false;
-        (f.recurrence as HTMLSelectElement).value = data.recurrence ?? "none";
-        (f.recurrenceUntil as HTMLInputElement).value = data.recurrenceUntil ?? "";
-        updateRecurUI();
+        if (mode === "create") {
+          editing = null;
+          titleEl.textContent = "集いを記す";
+          scopeWrap.hidden = true;
+          cancelledNote.hidden = true;
+          deleteBtn.hidden = true;
+          revertBtn.hidden = true;
+          recurRow.hidden = false;
+          const y = data.year ?? cursor.getFullYear();
+          const m = data.month ?? cursor.getMonth() + 1;
+          const d = data.day ?? today.getDate();
+          fillForm({
+            title: data.title ?? "",
+            date: data.seriesDate ?? `${y}-${pad(m)}-${pad(d)}`,
+            time: data.time ?? "21:00",
+            allDay: data.allDay ?? false,
+            category: data.category ?? "",
+            description: data.description ?? "",
+            highlight: data.highlight ?? false,
+            recurrence: data.recurrence ?? "none",
+            until: data.recurrenceUntil ?? "",
+          });
+          updateRecurUI();
+        } else {
+          editing = data as ApiEvent;
+          titleEl.textContent = "集いを書き換える";
+          const recurring = editing.recurrence !== "none";
+          scopeWrap.hidden = !recurring;
+          // 既に override 済みの回はデフォルトで「この回だけ」、それ以外はシリーズ全体
+          setScope(recurring && editing.isOverride ? "single" : "series");
+          applyScope();
+        }
 
         scrim.hidden = false;
         (f.title as HTMLInputElement).focus();
@@ -315,6 +477,11 @@ const userIsAdmin = isAdmin(aliases);
       function closeModal() {
         scrim.hidden = true;
       }
+
+      // スコープ切替でフォーム再構成
+      form.querySelectorAll<HTMLInputElement>('input[name="scope"]').forEach((r) =>
+        r.addEventListener("change", applyScope),
+      );
 
       // 終日チェックで時刻入力を切替
       (form.elements.namedItem("allDay") as HTMLInputElement).addEventListener("change", (e) => {
@@ -366,7 +533,9 @@ const userIsAdmin = isAdmin(aliases);
       grid.addEventListener("click", (e) => {
         const evEl = (e.target as HTMLElement).closest<HTMLElement>(".cal-ev");
         if (evEl) {
-          const ev = events.find((x) => x.id === evEl.dataset.evId);
+          const ev = events.find(
+            (x) => x.id === evEl.dataset.evId && x.occurrenceDate === evEl.dataset.occ,
+          );
           if (ev) openModal("edit", ev);
           return;
         }
@@ -378,7 +547,9 @@ const userIsAdmin = isAdmin(aliases);
       agendaList.addEventListener("click", (e) => {
         const row = (e.target as HTMLElement).closest<HTMLElement>(".agenda-row");
         if (!row) return;
-        const ev = events.find((x) => x.id === row.dataset.evId);
+        const ev = events.find(
+          (x) => x.id === row.dataset.evId && x.occurrenceDate === row.dataset.occ,
+        );
         if (ev) openModal("edit", ev);
       });
 
@@ -393,28 +564,39 @@ const userIsAdmin = isAdmin(aliases);
         e.preventDefault();
         const fd = new FormData(form);
         const allDay = fd.get("allDay") === "on";
-        const recurrence = String(fd.get("recurrence") ?? "none");
-        const recurrenceUntil =
-          recurrence === "none"
-            ? null
-            : String(fd.get("recurrenceUntil") ?? "").trim() || null;
-        const payload = {
+        const common = {
           title: String(fd.get("title") ?? "").trim(),
-          date: String(fd.get("date") ?? ""),
           time: allDay ? null : String(fd.get("time") ?? ""),
           allDay,
           category: String(fd.get("category") ?? "").trim() || null,
           description: String(fd.get("description") ?? "").trim() || null,
           highlight: fd.get("highlight") === "on",
-          recurrence,
-          recurrenceUntil,
         };
+        const recurrence = String(fd.get("recurrence") ?? "none");
+        const recurrenceUntil =
+          recurrence === "none"
+            ? null
+            : String(fd.get("recurrenceUntil") ?? "").trim() || null;
+
+        let url: string;
+        let payload: Record<string, unknown>;
+        if (!editing) {
+          // 新規作成
+          url = "/api/calendar/events";
+          payload = { ...common, date: String(fd.get("date") ?? ""), recurrence, recurrenceUntil };
+        } else if (editing.recurrence !== "none" && getScope() === "single") {
+          // この回だけ差し替え（日付は occurrenceDate に固定）
+          url = `/api/calendar/events/${editing.id}/occurrence`;
+          payload = { ...common, date: editing.occurrenceDate };
+        } else {
+          // シリーズ全体 / 単発の更新
+          url = `/api/calendar/events/${editing.id}`;
+          payload = { ...common, date: String(fd.get("date") ?? ""), recurrence, recurrenceUntil };
+        }
+
         statusEl.textContent = "保存中…";
-        const url = editingId
-          ? `/api/calendar/events/${editingId}`
-          : "/api/calendar/events";
         const res = await fetch(url, {
-          method: editingId ? "PATCH" : "POST",
+          method: editing ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
@@ -427,16 +609,36 @@ const userIsAdmin = isAdmin(aliases);
       });
 
       deleteBtn.addEventListener("click", async () => {
-        if (!editingId) return;
-        const target = events.find((x) => x.id === editingId);
-        const msg =
-          target && target.recurrence !== "none"
-            ? "この繰り返しの集いをシリーズごと消しますか？"
-            : "この集いを消しますか？";
-        if (!window.confirm(msg)) return;
-        const res = await fetch(`/api/calendar/events/${editingId}`, { method: "DELETE" });
+        if (!editing) return;
+        const single = editing.recurrence !== "none" && getScope() === "single";
+        let url: string;
+        if (single) {
+          if (!window.confirm("この回だけ中止しますか？（あとで「復活」で戻せます）")) return;
+          url = `/api/calendar/events/${editing.id}/occurrence?date=${editing.occurrenceDate}&mode=cancel`;
+        } else {
+          const msg =
+            editing.recurrence !== "none"
+              ? "この繰り返しの集いをシリーズごと消しますか？"
+              : "この集いを消しますか？";
+          if (!window.confirm(msg)) return;
+          url = `/api/calendar/events/${editing.id}`;
+        }
+        const res = await fetch(url, { method: "DELETE" });
         if (!res.ok) {
           statusEl.textContent = `削除失敗: ${res.status}`;
+          return;
+        }
+        closeModal();
+        await load();
+      });
+
+      // この回を復活（override を解除してシリーズ既定に戻す）
+      revertBtn.addEventListener("click", async () => {
+        if (!editing) return;
+        const url = `/api/calendar/events/${editing.id}/occurrence?date=${editing.occurrenceDate}&mode=revert`;
+        const res = await fetch(url, { method: "DELETE" });
+        if (!res.ok) {
+          statusEl.textContent = `復活失敗: ${res.status}`;
           return;
         }
         closeModal();
@@ -487,6 +689,14 @@ const userIsAdmin = isAdmin(aliases);
       color: var(--star-200);
       border-color: var(--star-400);
     }
+    /* 中止された回（admin のみ表示）: 薄く取り消し線 */
+    .cal-ev.cancelled {
+      opacity: 0.4;
+      text-decoration: line-through;
+      filter: grayscale(0.6);
+    }
+    /* この回だけ差し替え済み: 左に細い印 */
+    .cal-ev.overridden { box-shadow: inset 2px 0 0 var(--star-300); }
 
     /* ── 編集モーダル（LUXEL 調） ── */
     .cal-modal-scrim {
@@ -558,6 +768,46 @@ const userIsAdmin = isAdmin(aliases);
     }
     .cf-recur-hint[hidden] { display: none; }
     .cf-until[hidden] { display: none; }
+
+    /* 編集範囲（シリーズ全体 / この回だけ） */
+    .cf-scope { display: flex; flex-direction: column; gap: 8px; }
+    .cf-scope[hidden] { display: none; }
+    .cf-scope-opts { display: flex; gap: 8px; }
+    .cf-scope-opt {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      font-size: 13px; color: var(--ink-body);
+      background: rgba(4, 6, 15, 0.5);
+      border: 1px solid var(--hair);
+      border-radius: 8px;
+      padding: 9px 11px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .cf-scope-opt:has(input:checked) {
+      border-color: var(--star-400);
+      background: rgba(122, 162, 255, 0.1);
+      color: var(--star-050);
+    }
+    .cf-scope-opt input { accent-color: var(--star-400); }
+    .cf-cancelled-note {
+      font-size: 12px; line-height: 1.5;
+      color: var(--warm-300);
+      background: rgba(217, 138, 158, 0.08);
+      border: 1px solid rgba(217, 138, 158, 0.25);
+      border-radius: 8px;
+      padding: 9px 11px;
+    }
+    .cf-cancelled-note[hidden] { display: none; }
+    .cf-revert {
+      font-family: var(--sans); font-size: 13px; color: var(--star-200);
+      background: none; border: 1px solid var(--star-400); border-radius: 8px;
+      padding: 9px 14px; cursor: pointer;
+    }
+    .cf-revert:hover { background: rgba(122, 162, 255, 0.12); color: var(--star-050); }
+    .cf-revert[hidden] { display: none; }
+    .cf-delete[hidden] { display: none; }
+    [data-recur-row][hidden] { display: none; }
     .cf-field textarea { resize: vertical; }
     .cf-field input[disabled] { opacity: 0.4; }
     .cf-check {
