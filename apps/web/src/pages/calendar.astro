@@ -1,12 +1,14 @@
 ---
 /**
- * /calendar — カレンダー（Almanac）
+ * /calendar — カレンダー（Almanac、実データ）
  *
- * これからの集いを月暦 + アジェンダで見せる。当月をサーバーで描画し、
- * 前月/今月/翌月のナビは client script でグリッド/アジェンダを再構築する。
+ * calendar_events テーブルのイベントを月暦 + アジェンダで表示。
+ * 月のイベントは GET /api/calendar/events?year=&month= から取得し、
+ * クライアントがグリッド/アジェンダを描画する（月送りもこれで更新）。
  *
- * events は「当月の日番号」をキーにしたデモデータ（handoff 準拠）。
- * 本番では実日付（ISO）でイベントを引く構造へ要置換。
+ * 管理者（admin）はセルの「＋」やイベントのクリックで編集モーダルを開き、
+ * 作成 / 更新 / 削除ができる（POST/PATCH/DELETE /api/calendar/events）。
+ * 非管理者は閲覧のみ。
  */
 
 import LuxelShell from "../layouts/LuxelShell.astro";
@@ -24,42 +26,10 @@ const db = createDb(env.DATABASE_URL);
 const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const userIsAdmin = isAdmin(aliases);
-
-interface Ev {
-  t: string;
-  time: string;
-  meta: string;
-  chip: string;
-  warm: boolean;
-}
-const events: Record<number, Ev[]> = {
-  6: [{ t: "新月の観測会", time: "21:00", meta: "ボイスチャンネルに集合。今月いちばん暗い夜に。", chip: "定例", warm: false }],
-  13: [{ t: "コンセプト読書会", time: "22:00", meta: "おすすめの一冊を持ち寄って静かに語らう夜。", chip: "雑談", warm: false }],
-  20: [{ t: "満月祭", time: "20:00", meta: "月いちの大きな集い。新メンバー歓迎の灯をともします。", chip: "大集会", warm: true }],
-  27: [{ t: "bot『Astra』定期更新", time: "終日", meta: "ロール周りの調整。詳細はお知らせにて。", chip: "システム", warm: false }],
-};
-
-const MONTHS_JP = ["睦月", "如月", "弥生", "卯月", "皐月", "水無月", "文月", "葉月", "長月", "神無月", "霜月", "師走"];
-const DOWS = ["日", "月", "火", "水", "木", "金", "土"];
-
-// SSR: 当月
-const today = new Date();
-const year = today.getFullYear();
-const month = today.getMonth();
-const firstDow = new Date(year, month, 1).getDay();
-const daysInMonth = new Date(year, month + 1, 0).getDate();
-const cells: (number | null)[] = [];
-for (let i = 0; i < firstDow; i++) cells.push(null);
-for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
-const agendaItems = Object.keys(events)
-  .map(Number)
-  .sort((a, b) => a - b)
-  .map((d) => ({ d, dow: DOWS[new Date(year, month, d).getDay()], evs: events[d] }));
 ---
 
 <LuxelShell title="LUXEL — カレンダー" active="calendar" isAdmin={userIsAdmin}>
-  <div class="page page-wide page-in">
+  <div class="page page-wide page-in" data-admin={userIsAdmin ? "1" : "0"}>
     <header class="phead">
       <div class="eyebrow">Almanac</div>
       <h1 class="ptitle">カレンダー</h1>
@@ -68,138 +38,455 @@ const agendaItems = Object.keys(events)
     </header>
 
     <div class="cal-top">
-      <div class="cal-month" data-cal-month>
-        {MONTHS_JP[month]}<span class="yr">{year} · {String(month + 1).padStart(2, "0")}</span>
-      </div>
-      <div class="cal-nav">
-        <button class="cal-btn" data-cal-prev aria-label="前の月">‹</button>
-        <button class="cal-btn" data-cal-today aria-label="今月">●</button>
-        <button class="cal-btn" data-cal-next aria-label="次の月">›</button>
+      <div class="cal-month" data-cal-month></div>
+      <div class="cal-actions">
+        {userIsAdmin && (
+          <button class="cal-add" data-cal-add>＋ 集いを記す</button>
+        )}
+        <div class="cal-nav">
+          <button class="cal-btn" data-cal-prev aria-label="前の月">‹</button>
+          <button class="cal-btn" data-cal-today aria-label="今月">●</button>
+          <button class="cal-btn" data-cal-next aria-label="次の月">›</button>
+        </div>
       </div>
     </div>
 
     <div class="cal-grid-wrap">
-      <div class="cal-grid" data-cal-grid>
-        {DOWS.map((w, i) => (
-          <div class:list={["cal-dow", { sun: i === 0, sat: i === 6 }]}>{w}</div>
-        ))}
-        {cells.map((d, i) =>
-          d === null ? (
-            <div class="cal-cell empty"></div>
-          ) : (
-            <div class:list={["cal-cell", { today: d === today.getDate() }]}>
-              <span class="dn">{d}</span>
-              <span class="moon" style={`opacity:${d % 7 === 6 ? 0.9 : 0.35}`}></span>
-              {(events[d] || []).map((ev) => (
-                <div class:list={["cal-ev", { warm: ev.warm }]}>{ev.t}</div>
-              ))}
-            </div>
-          ),
-        )}
-      </div>
+      <div class="cal-grid" data-cal-grid></div>
     </div>
 
     <div class="agenda agenda-side">
-      <div class="agenda-h" data-agenda-h>今月の集い · {agendaItems.length} 件</div>
-      <div data-agenda-list>
-        {agendaItems.map(({ d, dow, evs }) =>
-          evs.map((ev) => (
-            <div class="agenda-row">
-              <div class="agenda-date">
-                <div class="d">{d}</div>
-                <div class="w">{dow}</div>
-              </div>
-              <div class="agenda-body">
-                <div class="agenda-time">{ev.time}</div>
-                <div class="agenda-title" style={ev.warm ? "color:var(--warm-200)" : undefined}>{ev.t}</div>
-                <div class="agenda-meta">{ev.meta}</div>
-                <span class="agenda-chip">{ev.chip}</span>
-              </div>
-            </div>
-          )),
-        )}
-      </div>
+      <div class="agenda-h" data-agenda-h>今月の集い</div>
+      <div data-agenda-list></div>
     </div>
   </div>
 
-  <script is:inline define:vars={{ events, MONTHS_JP, DOWS }}>
-    (function () {
-      const grid = document.querySelector("[data-cal-grid]");
-      const monthEl = document.querySelector("[data-cal-month]");
-      const agendaH = document.querySelector("[data-agenda-h]");
-      const agendaList = document.querySelector("[data-agenda-list]");
-      if (!grid) return;
+  {userIsAdmin && (
+    <div class="cal-modal-scrim" data-modal-scrim hidden>
+      <div class="cal-modal" role="dialog" aria-modal="true" aria-labelledby="cal-modal-title">
+        <div class="cal-modal-head">
+          <h2 id="cal-modal-title" data-modal-title>集いを記す</h2>
+          <button class="cal-modal-x" data-modal-close aria-label="閉じる">×</button>
+        </div>
+        <form class="cal-form" data-modal-form>
+          <label class="cf-field">
+            <span class="cf-label">題</span>
+            <input type="text" name="title" maxlength="120" required placeholder="例: 新月の観測会" />
+          </label>
 
-      const today = new Date();
-      let cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+          <div class="cf-row">
+            <label class="cf-field">
+              <span class="cf-label">日付</span>
+              <input type="date" name="date" required />
+            </label>
+            <label class="cf-field cf-time">
+              <span class="cf-label">時刻</span>
+              <input type="time" name="time" />
+            </label>
+          </div>
 
-      const esc = (s) =>
-        String(s).replace(/[&<>"]/g, (c) =>
-          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
-        );
+          <label class="cf-check">
+            <input type="checkbox" name="allDay" />
+            <span>終日（時刻なし）</span>
+          </label>
 
-      function render() {
-        const year = cursor.getFullYear();
-        const month = cursor.getMonth();
-        const firstDow = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const isThisMonth =
-          year === today.getFullYear() && month === today.getMonth();
+          <label class="cf-field">
+            <span class="cf-label">区分</span>
+            <input type="text" name="category" list="cal-cats" maxlength="24" placeholder="定例 / 雑談 / 大集会 / システム" />
+            <datalist id="cal-cats">
+              <option value="定例"></option>
+              <option value="雑談"></option>
+              <option value="大集会"></option>
+              <option value="システム"></option>
+            </datalist>
+          </label>
 
-        monthEl.innerHTML =
-          esc(MONTHS_JP[month]) +
-          '<span class="yr">' +
-          year +
-          " · " +
-          String(month + 1).padStart(2, "0") +
-          "</span>";
+          <label class="cf-field">
+            <span class="cf-label">説明</span>
+            <textarea name="description" maxlength="500" rows="3" placeholder="集いの概要や集合場所など"></textarea>
+          </label>
 
-        let html = "";
-        DOWS.forEach((w, i) => {
-          const cls = i === 0 ? " sun" : i === 6 ? " sat" : "";
-          html += '<div class="cal-dow' + cls + '">' + w + "</div>";
+          <label class="cf-check">
+            <input type="checkbox" name="highlight" />
+            <span>大きな集いとして強調（暖色）</span>
+          </label>
+
+          <div class="cf-status" data-modal-status></div>
+          <div class="cf-actions">
+            <button type="button" class="cf-delete" data-modal-delete hidden>削除</button>
+            <span class="cf-spacer"></span>
+            <button type="button" class="cf-cancel" data-modal-close>取消</button>
+            <button type="submit" class="cf-save">記す</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )}
+
+  <script>
+    interface ApiEvent {
+      id: string;
+      title: string;
+      year: number;
+      month: number;
+      day: number;
+      time: string | null;
+      allDay: boolean;
+      category: string | null;
+      description: string | null;
+      highlight: boolean;
+    }
+
+    const root = document.querySelector<HTMLElement>(".page[data-admin]");
+    const isAdmin = root?.dataset.admin === "1";
+
+    const grid = document.querySelector<HTMLElement>("[data-cal-grid]")!;
+    const monthEl = document.querySelector<HTMLElement>("[data-cal-month]")!;
+    const agendaH = document.querySelector<HTMLElement>("[data-agenda-h]")!;
+    const agendaList = document.querySelector<HTMLElement>("[data-agenda-list]")!;
+
+    const MONTHS_JP = ["睦月", "如月", "弥生", "卯月", "皐月", "水無月", "文月", "葉月", "長月", "神無月", "霜月", "師走"];
+    const DOWS = ["日", "月", "火", "水", "木", "金", "土"];
+
+    const today = new Date();
+    let cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+    let events: ApiEvent[] = [];
+
+    function esc(s: string): string {
+      return String(s).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!,
+      );
+    }
+
+    async function load() {
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth() + 1;
+      try {
+        const res = await fetch(`/api/calendar/events?year=${year}&month=${month}`, {
+          credentials: "same-origin",
         });
-        for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell empty"></div>';
-        for (let d = 1; d <= daysInMonth; d++) {
-          const isToday = isThisMonth && d === today.getDate();
-          const evs = events[d] || [];
-          html += '<div class="cal-cell' + (isToday ? " today" : "") + '">';
-          html += '<span class="dn">' + d + "</span>";
-          html += '<span class="moon" style="opacity:' + (d % 7 === 6 ? 0.9 : 0.35) + '"></span>';
-          evs.forEach((ev) => {
-            html += '<div class="cal-ev' + (ev.warm ? " warm" : "") + '">' + esc(ev.t) + "</div>";
-          });
-          html += "</div>";
-        }
-        grid.innerHTML = html;
+        events = res.ok ? ((await res.json()).events as ApiEvent[]) : [];
+      } catch {
+        events = [];
+      }
+      render();
+    }
 
-        // agenda
-        const items = Object.keys(events)
-          .map(Number)
-          .sort((a, b) => a - b)
-          .map((d) => ({ d, dow: DOWS[new Date(year, month, d).getDay()], evs: events[d] }));
-        let count = 0;
-        let al = "";
-        items.forEach(({ d, dow, evs }) => {
-          evs.forEach((ev) => {
-            count++;
-            al += '<div class="agenda-row"><div class="agenda-date"><div class="d">' + d + '</div><div class="w">' + dow + '</div></div><div class="agenda-body"><div class="agenda-time">' + esc(ev.time) + '</div><div class="agenda-title"' + (ev.warm ? ' style="color:var(--warm-200)"' : "") + ">" + esc(ev.t) + '</div><div class="agenda-meta">' + esc(ev.meta) + '</div><span class="agenda-chip">' + esc(ev.chip) + "</span></div></div>";
-          });
-        });
-        agendaH.textContent = "今月の集い · " + count + " 件";
-        agendaList.innerHTML = al;
+    function render() {
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth();
+      const firstDow = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const isThisMonth = year === today.getFullYear() && month === today.getMonth();
+
+      monthEl.innerHTML =
+        esc(MONTHS_JP[month]!) +
+        `<span class="yr">${year} · ${String(month + 1).padStart(2, "0")}</span>`;
+
+      // group events by day
+      const byDay = new Map<number, ApiEvent[]>();
+      for (const ev of events) {
+        const arr = byDay.get(ev.day) ?? [];
+        arr.push(ev);
+        byDay.set(ev.day, arr);
       }
 
-      function shift(n) {
-        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + n, 1);
-        render();
-      }
-      document.querySelector("[data-cal-prev]").addEventListener("click", () => shift(-1));
-      document.querySelector("[data-cal-next]").addEventListener("click", () => shift(1));
-      document.querySelector("[data-cal-today]").addEventListener("click", () => {
-        cursor = new Date(today.getFullYear(), today.getMonth(), 1);
-        render();
+      let html = "";
+      DOWS.forEach((w, i) => {
+        const cls = i === 0 ? " sun" : i === 6 ? " sat" : "";
+        html += `<div class="cal-dow${cls}">${w}</div>`;
       });
-    })();
+      for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell empty"></div>';
+      for (let d = 1; d <= daysInMonth; d++) {
+        const isToday = isThisMonth && d === today.getDate();
+        const evs = byDay.get(d) ?? [];
+        html += `<div class="cal-cell${isToday ? " today" : ""}${isAdmin ? " editable" : ""}" data-day="${d}">`;
+        html += `<span class="dn">${d}</span>`;
+        html += `<span class="moon" style="opacity:${d % 7 === 6 ? 0.9 : 0.35}"></span>`;
+        for (const ev of evs) {
+          html += `<div class="cal-ev${ev.highlight ? " warm" : ""}" data-ev-id="${ev.id}">${esc(ev.title)}</div>`;
+        }
+        if (isAdmin) html += '<span class="cal-cell-add" aria-hidden="true">＋</span>';
+        html += "</div>";
+      }
+      grid.innerHTML = html;
+
+      // agenda (sorted by day then time)
+      const sorted = [...events].sort(
+        (a, b) => a.day - b.day || (a.time ?? "").localeCompare(b.time ?? ""),
+      );
+      agendaH.textContent = `今月の集い · ${sorted.length} 件`;
+      let al = "";
+      for (const ev of sorted) {
+        const dow = DOWS[new Date(year, month, ev.day).getDay()]!;
+        const timeLabel = ev.allDay ? "終日" : ev.time ?? "";
+        al += `<div class="agenda-row${isAdmin ? " editable" : ""}" data-ev-id="${ev.id}">`;
+        al += `<div class="agenda-date"><div class="d">${ev.day}</div><div class="w">${dow}</div></div>`;
+        al += '<div class="agenda-body">';
+        al += `<div class="agenda-time">${esc(timeLabel)}</div>`;
+        al += `<div class="agenda-title"${ev.highlight ? ' style="color:var(--warm-200)"' : ""}>${esc(ev.title)}</div>`;
+        if (ev.description) al += `<div class="agenda-meta">${esc(ev.description)}</div>`;
+        if (ev.category) al += `<span class="agenda-chip">${esc(ev.category)}</span>`;
+        al += "</div></div>";
+      }
+      agendaList.innerHTML =
+        al || '<div class="agenda-empty">この月の集いはまだありません。</div>';
+    }
+
+    function shift(n: number) {
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + n, 1);
+      void load();
+    }
+    document.querySelector("[data-cal-prev]")!.addEventListener("click", () => shift(-1));
+    document.querySelector("[data-cal-next]")!.addEventListener("click", () => shift(1));
+    document.querySelector("[data-cal-today]")!.addEventListener("click", () => {
+      cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+      void load();
+    });
+
+    // ─── admin: 編集モーダル ───
+    if (isAdmin) {
+      const scrim = document.querySelector<HTMLElement>("[data-modal-scrim]")!;
+      const form = document.querySelector<HTMLFormElement>("[data-modal-form]")!;
+      const titleEl = document.querySelector<HTMLElement>("[data-modal-title]")!;
+      const statusEl = document.querySelector<HTMLElement>("[data-modal-status]")!;
+      const deleteBtn = document.querySelector<HTMLButtonElement>("[data-modal-delete]")!;
+      let editingId: string | null = null;
+
+      function pad(n: number) {
+        return String(n).padStart(2, "0");
+      }
+      function openModal(mode: "create" | "edit", data: Partial<ApiEvent> & { day?: number }) {
+        editingId = mode === "edit" ? data.id ?? null : null;
+        titleEl.textContent = mode === "edit" ? "集いを書き換える" : "集いを記す";
+        deleteBtn.hidden = mode !== "edit";
+        statusEl.textContent = "";
+        form.reset();
+
+        const f = form.elements as unknown as Record<string, HTMLInputElement | HTMLTextAreaElement>;
+        (f.title as HTMLInputElement).value = data.title ?? "";
+        const y = data.year ?? cursor.getFullYear();
+        const m = (data.month ?? cursor.getMonth() + 1);
+        const d = data.day ?? today.getDate();
+        (f.date as HTMLInputElement).value = `${y}-${pad(m)}-${pad(d)}`;
+        (f.time as HTMLInputElement).value = data.time ?? "21:00";
+        (f.allDay as HTMLInputElement).checked = data.allDay ?? false;
+        (f.category as HTMLInputElement).value = data.category ?? "";
+        (f.description as HTMLTextAreaElement).value = data.description ?? "";
+        (f.highlight as HTMLInputElement).checked = data.highlight ?? false;
+        (f.time as HTMLInputElement).disabled = data.allDay ?? false;
+
+        scrim.hidden = false;
+        (f.title as HTMLInputElement).focus();
+      }
+      function closeModal() {
+        scrim.hidden = true;
+      }
+
+      // 終日チェックで時刻入力を切替
+      (form.elements.namedItem("allDay") as HTMLInputElement).addEventListener("change", (e) => {
+        (form.elements.namedItem("time") as HTMLInputElement).disabled =
+          (e.target as HTMLInputElement).checked;
+      });
+
+      // ＋追加ボタン
+      document.querySelector("[data-cal-add]")?.addEventListener("click", () =>
+        openModal("create", {}),
+      );
+
+      // グリッド: セル（空き）クリックで追加、イベントクリックで編集
+      grid.addEventListener("click", (e) => {
+        const evEl = (e.target as HTMLElement).closest<HTMLElement>(".cal-ev");
+        if (evEl) {
+          const ev = events.find((x) => x.id === evEl.dataset.evId);
+          if (ev) openModal("edit", ev);
+          return;
+        }
+        const cell = (e.target as HTMLElement).closest<HTMLElement>(".cal-cell.editable");
+        if (cell && cell.dataset.day) openModal("create", { day: Number(cell.dataset.day) });
+      });
+
+      // アジェンダ行クリックで編集
+      agendaList.addEventListener("click", (e) => {
+        const row = (e.target as HTMLElement).closest<HTMLElement>(".agenda-row");
+        if (!row) return;
+        const ev = events.find((x) => x.id === row.dataset.evId);
+        if (ev) openModal("edit", ev);
+      });
+
+      document.querySelectorAll("[data-modal-close]").forEach((b) =>
+        b.addEventListener("click", closeModal),
+      );
+      scrim.addEventListener("click", (e) => {
+        if (e.target === scrim) closeModal();
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        const allDay = fd.get("allDay") === "on";
+        const payload = {
+          title: String(fd.get("title") ?? "").trim(),
+          date: String(fd.get("date") ?? ""),
+          time: allDay ? null : String(fd.get("time") ?? ""),
+          allDay,
+          category: String(fd.get("category") ?? "").trim() || null,
+          description: String(fd.get("description") ?? "").trim() || null,
+          highlight: fd.get("highlight") === "on",
+        };
+        statusEl.textContent = "保存中…";
+        const url = editingId
+          ? `/api/calendar/events/${editingId}`
+          : "/api/calendar/events";
+        const res = await fetch(url, {
+          method: editingId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          statusEl.textContent = `失敗: ${res.status} ${await res.text()}`;
+          return;
+        }
+        closeModal();
+        await load();
+      });
+
+      deleteBtn.addEventListener("click", async () => {
+        if (!editingId) return;
+        if (!window.confirm("この集いを消しますか？")) return;
+        const res = await fetch(`/api/calendar/events/${editingId}`, { method: "DELETE" });
+        if (!res.ok) {
+          statusEl.textContent = `削除失敗: ${res.status}`;
+          return;
+        }
+        closeModal();
+        await load();
+      });
+    }
+
+    void load();
   </script>
+
+  <style>
+    .cal-actions { display: flex; align-items: center; gap: 12px; }
+    .cal-add {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      color: var(--star-200);
+      background: rgba(122, 162, 255, 0.06);
+      border: 1px solid var(--hair);
+      border-radius: 9px;
+      padding: 9px 14px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .cal-add:hover { background: rgba(122, 162, 255, 0.12); border-color: var(--star-400); color: var(--star-050); }
+
+    .cal-cell.editable { cursor: pointer; }
+    .cal-cell.editable .cal-cell-add {
+      position: absolute;
+      bottom: 6px; right: 8px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--star-300);
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .cal-cell.editable:hover .cal-cell-add { opacity: 0.7; }
+    .cal-cell.editable:hover { border-color: var(--hair); background: rgba(122, 162, 255, 0.05); }
+    .cal-ev { cursor: inherit; }
+    .cal-cell.editable .cal-ev:hover { box-shadow: 0 0 0 1px var(--star-400); }
+    .agenda-row.editable { cursor: pointer; border-radius: 8px; transition: background 0.2s; }
+    .agenda-row.editable:hover { background: rgba(122, 162, 255, 0.05); }
+    .agenda-empty { color: var(--silver-700); font-size: 14px; padding: 18px 0; }
+
+    /* ── 編集モーダル（LUXEL 調） ── */
+    .cal-modal-scrim {
+      position: fixed; inset: 0; z-index: 60;
+      background: rgba(4, 6, 15, 0.72);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .cal-modal-scrim[hidden] { display: none; }
+    .cal-modal {
+      width: min(440px, 100%);
+      max-height: 88vh;
+      overflow-y: auto;
+      background: linear-gradient(180deg, rgba(10, 16, 38, 0.96), rgba(7, 11, 30, 0.96));
+      border: 1px solid var(--hair);
+      border-radius: 16px;
+      box-shadow: 0 0 40px rgba(47, 71, 168, 0.25), 0 20px 60px rgba(0, 0, 0, 0.5);
+      animation: calModalIn 0.3s var(--ease);
+    }
+    @keyframes calModalIn { from { transform: translateY(10px); } to { transform: none; } }
+    .cal-modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 22px 14px;
+      border-bottom: 1px solid var(--hair-soft);
+    }
+    .cal-modal-head h2 {
+      font-family: var(--serif); font-weight: 600; font-size: 18px;
+      letter-spacing: 0.06em; color: var(--star-050); margin: 0;
+    }
+    .cal-modal-x {
+      background: none; border: 0; color: var(--silver-500);
+      font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    .cal-modal-x:hover { color: var(--star-100); }
+
+    .cal-form { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 14px; }
+    .cf-row { display: flex; gap: 12px; }
+    .cf-row .cf-field { flex: 1; }
+    .cf-time { max-width: 130px; }
+    .cf-field { display: flex; flex-direction: column; gap: 6px; }
+    .cf-label {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--star-400);
+    }
+    .cf-field input,
+    .cf-field textarea {
+      background: rgba(4, 6, 15, 0.5);
+      border: 1px solid var(--hair);
+      border-radius: 8px;
+      color: var(--star-100);
+      font-family: var(--sans);
+      font-size: 14px;
+      padding: 9px 11px;
+      outline: none;
+    }
+    .cf-field input:focus,
+    .cf-field textarea:focus { border-color: var(--star-400); }
+    .cf-field textarea { resize: vertical; }
+    .cf-field input[disabled] { opacity: 0.4; }
+    .cf-check {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--ink-body); cursor: pointer;
+    }
+    .cf-check input { accent-color: var(--star-400); width: 15px; height: 15px; }
+    .cf-status { font-size: 12px; color: var(--warm-300); min-height: 1em; }
+    .cf-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+    .cf-spacer { flex: 1; }
+    .cf-save {
+      font-family: var(--serif); font-size: 14px; font-weight: 600;
+      letter-spacing: 0.1em; color: var(--void-950);
+      background: var(--star-300); border: 0; border-radius: 8px;
+      padding: 9px 20px; cursor: pointer;
+    }
+    .cf-save:hover { background: var(--star-200); }
+    .cf-cancel {
+      font-family: var(--sans); font-size: 13px; color: var(--silver-500);
+      background: none; border: 1px solid var(--hair-soft); border-radius: 8px;
+      padding: 9px 14px; cursor: pointer;
+    }
+    .cf-cancel:hover { color: var(--star-100); border-color: var(--hair); }
+    .cf-delete {
+      font-family: var(--sans); font-size: 13px; color: #d98a9e;
+      background: none; border: 1px solid rgba(217, 138, 158, 0.3); border-radius: 8px;
+      padding: 9px 14px; cursor: pointer;
+    }
+    .cf-delete:hover { border-color: #d98a9e; }
+  </style>
 </LuxelShell>

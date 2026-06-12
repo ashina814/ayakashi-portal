@@ -40,3 +40,6 @@ export {
 
 // 監査ログ
 export { auditLog } from "./schema/audit";
+
+// カレンダーイベント
+export { calendarEvents } from "./schema/calendar";
