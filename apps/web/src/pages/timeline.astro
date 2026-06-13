@@ -1,12 +1,11 @@
 ---
 /**
- * /timeline — 年表（Chronicle）
+ * /timeline — 年表（Chronicle、縦のクロニクル）
  *
- * 沿革を「ひとつの星座」として描く星図プレート。各出来事を等級つきの星で
- * プロットし時間順に星座線で結ぶ。星 ⇔ 観測記録（ログ）が双方向連動。
- * 星座線は mount 時に自走描画（client script）。
+ * 沿革を「ひとすじの光」として上から下へ。時代（章）ごとにまとめ、左の発光
+ * レールがスクロールに合わせて伸び、最下部の「現在＝新星」が暖色で脈動する。
  *
- * nodes はプレースホルダー。後で DB/設定ファイルへ外出しする。
+ * nodes はプレースホルダー。後で DB / 設定ファイルへ外出しする。
  */
 
 import LuxelShell from "../layouts/LuxelShell.astro";
@@ -26,43 +25,44 @@ const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const userIsAdmin = isAdmin(aliases);
 
 interface Node {
-  g: string;
   date: string;
   era: string;
+  rom: string;
   title: string;
   desc: string;
   tag: string;
-  x: number;
-  y: number;
-  mag: number;
   now?: boolean;
 }
 
 const nodes: Node[] = [
-  { g: "α", date: "2024.03", era: "黎明 · MMXXIV", title: "最初の灯がともる", desc: "創設メンバー数名で、暗がりにひとつの光を掲げた。サーバーの原型はこの夜に生まれた。", tag: "創設", x: 16, y: 33, mag: 3 },
-  { g: "β", date: "2024.06", era: "黎明 · MMXXIV", title: "観測規約をさだめる", desc: "静けさを守るための約束ごとを整え、ロールの基礎を設計。場所の輪郭がはっきりしてきた。", tag: "制度", x: 33, y: 63, mag: 2 },
-  { g: "γ", date: "2024.10", era: "黎明 · MMXXIV", title: "百の灯", desc: "メンバーが100名を超える。最初の大きな集いを開き、星座のように人がつながりはじめた。", tag: "節目", x: 45, y: 22, mag: 3 },
-  { g: "δ", date: "2025.02", era: "拡張 · MMXXV", title: "bot『Astra』稼働", desc: "ロール付与と告知を担う観測補助botを導入。運用が一段なめらかになった。", tag: "システム", x: 62, y: 55, mag: 2 },
-  { g: "ε", date: "2025.08", era: "拡張 · MMXXV", title: "アーカイブ計画始動", desc: "交わされた言葉や催しを記録に残す試みを開始。年表とWikiの構想がここから動き出す。", tag: "記録", x: 76, y: 34, mag: 2 },
-  { g: "✦", date: "2026.06", era: "現在 · MMXXVI", title: "LUXEL リニューアル", desc: "ログインから本体まで、星の観測所として世界観を統一。いまこの瞬間も、歴史は紡がれ続けている。", tag: "現在", x: 88, y: 70, mag: 4, now: true },
+  { date: "2024.03", era: "黎明", rom: "MMXXIV", title: "最初の灯がともる", desc: "創設メンバー数名で、暗がりにひとつの光を掲げた。サーバーの原型は、この夜に生まれた。", tag: "創設" },
+  { date: "2024.06", era: "黎明", rom: "MMXXIV", title: "観測規約をさだめる", desc: "静けさを守るための約束ごとを整え、ロールの基礎を設計。場所の輪郭が、すこしずつ立ち上がる。", tag: "制度" },
+  { date: "2024.10", era: "黎明", rom: "MMXXIV", title: "百の灯", desc: "メンバーが100名を超える。最初の大きな集いを開き、人と人が星座のようにつながりはじめた。", tag: "節目" },
+  { date: "2025.02", era: "拡張", rom: "MMXXV", title: "bot『Astra』稼働", desc: "ロール付与と告知を担う観測補助botを導入。日々の運用が、ぐっとなめらかになった。", tag: "システム" },
+  { date: "2025.08", era: "拡張", rom: "MMXXV", title: "アーカイブ計画始動", desc: "交わされた言葉や催しを記録に残す試みを開始。年表とWikiの構想が、ここから動き出す。", tag: "記録" },
+  { date: "2026.06", era: "現在", rom: "MMXXVI", title: "LUXEL リニューアル", desc: "ログインから本体まで、ひとつの星の観測所として世界観を統一。いまこの瞬間も、歴史は紡がれ続けている。", tag: "現在", now: true },
 ];
 
-const points = nodes.map((n) => `${n.x},${n.y}`).join(" ");
-
-// 時代ごとにグルーピング（順序保持）
-interface Era {
-  label: string;
-  items: (Node & { idx: number })[];
+const ROM = ["I", "II", "III", "IV", "V"];
+interface Chapter {
+  era: string;
+  rom: string;
+  year: string;
+  items: (Node & { gi: number })[];
 }
-const eras: Era[] = [];
-nodes.forEach((n, i) => {
-  let e = eras.find((x) => x.label === n.era);
-  if (!e) {
-    e = { label: n.era, items: [] };
-    eras.push(e);
+const chapters: Chapter[] = [];
+nodes.forEach((n) => {
+  let c = chapters.find((x) => x.era === n.era);
+  if (!c) {
+    c = { era: n.era, rom: n.rom, year: n.date.split(".")[0], items: [] };
+    chapters.push(c);
   }
-  e.items.push({ ...n, idx: i });
+  c.items.push({ ...n, gi: 0 });
 });
+let k = 0;
+chapters.forEach((c) => c.items.forEach((it) => (it.gi = k++)));
+
+const skyline = [44, 72, 58, 96, 64, 120, 80, 102, 70, 132, 56, 88, 62, 110, 48, 84, 68, 118, 52, 78];
 ---
 
 <LuxelShell title="LUXEL — 年表" active="timeline" isAdmin={userIsAdmin}>
@@ -70,127 +70,120 @@ nodes.forEach((n, i) => {
     <header class="phead">
       <div class="eyebrow">Chronicle</div>
       <h1 class="ptitle">年表</h1>
-      <div class="psub">the LUXEL constellation</div>
+      <div class="psub">光の系譜</div>
       <div class="phead-rule"></div>
     </header>
 
-    <p class="atlas-intro">
-      歩んできた歴史を、ひとつの星座として描き起こしました。明るい星ほど大きな節目。
-      線は時間の順に結ばれ、いちばん端の <span class="ai-nova">新星</span> は——いまも形を成し続けています。
+    <p class="chron-intro">
+      歩んできた歴史を、ひとすじの光として書き留めました。上から下へ、灯はすこしずつ強くなり——
+      いちばん下の <em>新星</em> は、いまも形を成し続けています。
     </p>
 
-    <div class="atlas-plate">
-      <svg class="atlas-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <g class="atlas-grid">
-          {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((v) => (
-            <line x1={v} y1="0" x2={v} y2="100" vector-effect="non-scaling-stroke" />
-          ))}
-          {[20, 40, 60, 80].map((v) => (
-            <line x1="0" y1={v} x2="100" y2={v} vector-effect="non-scaling-stroke" />
-          ))}
-        </g>
-        <path class="atlas-ecliptic" d="M0,52 C 26,34 58,58 100,30" vector-effect="non-scaling-stroke" fill="none" />
-        <polyline class="atlas-link" points={points} vector-effect="non-scaling-stroke" fill="none" data-link></polyline>
-      </svg>
-
-      <div class="atlas-plate-id">PLATE I · LVXEL CHRONICLE</div>
-      <div class="atlas-epoch">EPOCH 2024 — 2026</div>
-      <div class="atlas-compass"><span class="ac-n">N</span><span class="ac-arrow"></span></div>
-
-      {nodes.map((n, i) => (
-        <button
-          class:list={["star", { now: n.now, big: n.mag >= 3, active: i === 0 }]}
-          style={`left:${n.x}%;top:${n.y}%;--r:${6 + n.mag * 3.2}px`}
-          data-star={i}
-          aria-label={`${n.date} ${n.title}`}
-        >
-          <span class="s-halo" aria-hidden="true"></span>
-          <span class="s-dot"></span>
-          <span class="s-label">{n.g} · {n.date}</span>
-        </button>
-      ))}
-
-      <div class="atlas-axis">
-        <span style="left:24%">黎明</span>
-        <span style="left:63%">拡張</span>
-        <span style="left:88%">現在</span>
+    <div class="chron" data-chron>
+      <div class="chron-rail" data-rail>
+        <div class="chron-rail-base"></div>
+        <div class="chron-rail-fill" data-fill></div>
       </div>
-    </div>
 
-    <div class="atlas-log">
-      <div class="al-head">観測記録 — Observation Log</div>
-      {eras.map((era) => (
-        <div class="al-era">
-          <div class="al-era-label">{era.label}</div>
-          {era.items.map((n) => (
-            <div
-              class:list={["log-row", { active: n.idx === 0, now: n.now }]}
-              data-row={n.idx}
-            >
-              <div class="log-g">{n.g}</div>
-              <div class="log-meta">
-                <div class="log-date">{n.date}</div>
-                <div class="log-mag">mag {n.mag.toFixed(1)}</div>
-              </div>
-              <div class="log-main">
-                <div class="log-title">
-                  {n.title}
-                  {n.now && <span class="log-here">— いま、ここ</span>}
-                </div>
-                <div class="log-desc"><p>{n.desc}</p><span class="log-tag">{n.tag}</span></div>
-              </div>
-            </div>
+      {chapters.map((c, ci) => (
+        <section class="chron-chapter">
+          <div class="chron-ch-head" data-reveal>
+            <span class="cc-year" aria-hidden="true">{c.year}</span>
+            <span class="cc-marker" aria-hidden="true"></span>
+            <span class="cc-rn">{ROM[ci]}</span>
+            <div class="cc-name">{c.era}</div>
+            <div class="cc-sub">{c.rom}</div>
+          </div>
+          {c.items.map((n) => (
+            <article class:list={["chron-node", { now: n.now }]} data-reveal data-gi={n.gi}>
+              <span class="cn-dot" aria-hidden="true" data-dot={n.gi}></span>
+              <div class="cn-date">{n.date}</div>
+              <h3 class="cn-title">
+                {n.title}{n.now && <span class="cn-here">いま、ここ</span>}
+              </h3>
+              <p class="cn-desc">{n.desc}</p>
+              <span class="cn-tag">{n.tag}</span>
+            </article>
           ))}
-        </div>
+        </section>
       ))}
-      <div class="al-weaving">紡がれ続けています…</div>
+
+      <div class="chron-skyline" aria-hidden="true">
+        {skyline.map((hgt) => (
+          <div class="chron-bldg" style={`height:${hgt}px`}>
+            {hgt > 78 && <i style={`top:${Math.round(hgt * 0.3)}px;transform:translateX(-50%)`}></i>}
+            {hgt > 112 && <i style={`top:${Math.round(hgt * 0.56)}px;left:68%`}></i>}
+          </div>
+        ))}
+      </div>
     </div>
   </div>
 
-  <script is:inline>
-    (function () {
-      const stars = Array.from(document.querySelectorAll("[data-star]"));
-      const rows = Array.from(document.querySelectorAll("[data-row]"));
-      let active = 0;
-      function setActive(i) {
-        if (i === active) return;
-        active = i;
-        stars.forEach((s) => s.classList.toggle("active", Number(s.dataset.star) === i));
-        rows.forEach((r) => r.classList.toggle("active", Number(r.dataset.row) === i));
-      }
-      stars.forEach((s) => {
-        const i = Number(s.dataset.star);
-        s.addEventListener("mouseenter", () => setActive(i));
-        s.addEventListener("focus", () => setActive(i));
-        s.addEventListener("click", () => setActive(i));
-      });
-      rows.forEach((r) => {
-        const i = Number(r.dataset.row);
-        r.addEventListener("mouseenter", () => setActive(i));
-        r.addEventListener("click", () => setActive(i));
-      });
+  <script>
+    const root = document.querySelector<HTMLElement>("[data-chron]");
+    if (root) {
+      const rail = root.querySelector<HTMLElement>("[data-rail]")!;
+      const fill = root.querySelector<HTMLElement>("[data-fill]")!;
+      const dots = Array.from(root.querySelectorAll<HTMLElement>("[data-dot]"));
+      const revealables = Array.from(root.querySelectorAll<HTMLElement>("[data-reveal]"));
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const armed = !reduce;
+      if (armed) root.classList.add("armed");
 
-      // 星座線の自走描画
-      const path = document.querySelector("[data-link]");
-      if (path && path.getTotalLength) {
-        const len = path.getTotalLength();
-        path.style.strokeDasharray = len;
-        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (reduce || !len) {
-          path.style.strokeDashoffset = "0";
-        } else {
-          path.style.strokeDashoffset = len;
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
-              path.style.transition = "stroke-dashoffset 1.9s var(--ease) 0.25s";
-              path.style.strokeDashoffset = "0";
-            }),
-          );
-          setTimeout(() => {
-            path.style.strokeDashoffset = "0";
-          }, 2600);
-        }
+      let maxRevealed = -1;
+
+      function measureFill(i: number) {
+        const dot = dots[i];
+        if (!dot) return;
+        const railTop = rail.getBoundingClientRect().top;
+        const d = dot.getBoundingClientRect();
+        fill.style.height = Math.max(0, d.top + d.height / 2 - railTop) + "px";
       }
-    })();
+
+      function show(el: HTMLElement) {
+        el.classList.add("is-in");
+        el.style.opacity = "1";
+        el.style.transform = "none";
+        window.setTimeout(() => {
+          if (parseFloat(getComputedStyle(el).opacity || "1") < 0.99) {
+            el.style.transition = "none";
+            el.style.opacity = "1";
+            el.style.transform = "none";
+          }
+        }, 1100);
+      }
+
+      if (!armed) {
+        revealables.forEach(show);
+        requestAnimationFrame(() => measureFill(dots.length - 1));
+      } else {
+        const reveal = () => {
+          const trigger = window.innerHeight * 0.9;
+          revealables.forEach((el) => {
+            if (el.classList.contains("is-in")) return;
+            if (el.getBoundingClientRect().top < trigger) {
+              show(el);
+              const gi = el.dataset.gi;
+              if (gi !== undefined) maxRevealed = Math.max(maxRevealed, +gi);
+            }
+          });
+          measureFill(maxRevealed);
+        };
+        let ticking = false;
+        const onScroll = () => {
+          if (ticking) return;
+          ticking = true;
+          requestAnimationFrame(() => {
+            ticking = false;
+            reveal();
+          });
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll);
+        reveal();
+        requestAnimationFrame(reveal);
+        window.setTimeout(reveal, 300);
+      }
+    }
   </script>
 </LuxelShell>

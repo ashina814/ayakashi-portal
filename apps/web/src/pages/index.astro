@@ -1,10 +1,12 @@
 ---
 /**
- * / — LUXEL コンセプト（ログイン後ホーム）
+ * / — 今夜の空（Tonight） ＝ ログイン後ホーム
  *
- * 旧「妖ポータル」襖ハブから差し替え。LUXEL インテリアの入口。
- * 理念を「ひとつの光を周回する天体（オラリー）」として体験させる。
- * オラリー体 / タブで active を切替 → 読み出しが連動（client script）。
+ * 挨拶（時刻で変化）/ 日付・月相・在室 / 目録（4ページへのプレート）/
+ * お知らせ（アコーディオン）/ 次の集い。
+ *
+ * 次の集いは calendar_events から「今日以降」を実データで取得（直近3件）。
+ * お知らせ・在室人数は当面プレースホルダー（後で DB / Discord 連携）。
  */
 
 import LuxelShell from "../layouts/LuxelShell.astro";
@@ -12,6 +14,7 @@ import { createDb } from "@ayakashi/db/client";
 import { getEnv } from "../lib/auth/helpers";
 import { getMemberRoleAliases } from "../lib/repos/membership";
 import { isAdmin } from "../lib/auth/permissions";
+import { listEventsInRange } from "../lib/repos/events";
 
 if (!Astro.locals.session) {
   return Astro.redirect("/login");
@@ -23,162 +26,236 @@ const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
 const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
 const userIsAdmin = isAdmin(aliases);
 
-const pillars = [
-  {
-    no: "01",
-    title: "ひとつの灯",
-    lat: "lumen",
-    body: "暗がりにあって、まず最初に灯る光でありたい。誰かが迷い込んだ夜に、ここを目印にできるように。",
-  },
-  {
-    no: "02",
-    title: "観測する場所",
-    lat: "specula",
-    body: "騒がしさより、静けさを。流れて消える言葉ではなく、星を読むように時間をかけて語らえる場所に。",
-  },
-  {
-    no: "03",
-    title: "巡る軌道",
-    lat: "orbita",
-    body: "誰もが自分の軌道を持っている。近づき、離れ、また巡り合う。その距離ごと心地よくいられるように。",
-  },
+const DOWS = ["日", "月", "火", "水", "木", "金", "土"];
+
+// ── 次の集い（実データ）: 今日 0:00(JST) 以降の直近イベントを ~3ヶ月先まで ──
+const now = new Date();
+const jstNow = new Date(now.getTime() + 9 * 3600 * 1000);
+const todayKey = `${jstNow.getUTCFullYear()}-${String(jstNow.getUTCMonth() + 1).padStart(2, "0")}-${String(jstNow.getUTCDate()).padStart(2, "0")}`;
+const fromMonth = new Date(`${jstNow.getUTCFullYear()}-${String(jstNow.getUTCMonth() + 1).padStart(2, "0")}-01T00:00:00+09:00`);
+const toMonth = new Date(fromMonth);
+toMonth.setMonth(toMonth.getMonth() + 3);
+
+const rawEvents = await listEventsInRange(db, fromMonth, toMonth).catch(() => []);
+
+function jstParts(d: Date) {
+  const j = new Date(d.getTime() + 9 * 3600 * 1000);
+  return {
+    y: j.getUTCFullYear(),
+    m: j.getUTCMonth() + 1,
+    d: j.getUTCDate(),
+    dow: DOWS[j.getUTCDay()],
+    key: `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}-${String(j.getUTCDate()).padStart(2, "0")}`,
+    hh: String(j.getUTCHours()).padStart(2, "0"),
+    mm: String(j.getUTCMinutes()).padStart(2, "0"),
+  };
+}
+
+const todayMidnight = Date.parse(`${todayKey}T00:00:00+09:00`);
+const upcoming = rawEvents
+  .filter((e) => !e.cancelled)
+  .map((e) => {
+    const p = jstParts(e.startsAt);
+    const evMidnight = Date.parse(`${p.key}T00:00:00+09:00`);
+    const days = Math.round((evMidnight - todayMidnight) / 86400000);
+    return {
+      m: p.m,
+      d: p.d,
+      dow: p.dow,
+      days,
+      time: e.allDay ? "終日" : `${p.hh}:${p.mm}`,
+      title: e.title,
+      warm: e.highlight,
+    };
+  })
+  .filter((e) => e.days >= 0)
+  .sort((a, b) => a.days - b.days);
+
+const next = upcoming[0] ?? null;
+const rest = upcoming.slice(1, 3);
+
+// ── 挨拶（JST 時刻） ──
+const h = jstNow.getUTCHours();
+const greet =
+  h < 5 ? "夜更けまで、ようこそ"
+  : h < 11 ? "おはやい朝に、ようこそ"
+  : h < 17 ? "ようこそ、観測所へ"
+  : "今宵も、ようこそ";
+const dateStr = `${jstNow.getUTCFullYear()}年${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日（${DOWS[jstNow.getUTCDay()]}）`;
+
+// 月相
+function moonName(date = new Date()): string {
+  const synodic = 29.530588853;
+  const ref = Date.UTC(2000, 0, 6, 18, 14);
+  let age = ((date.getTime() - ref) / 86400000) % synodic;
+  if (age < 0) age += synodic;
+  return ["新月", "三日月", "上弦", "十三夜", "満月", "居待月", "下弦", "有明"][
+    Math.floor((age / synodic) * 8 + 0.5) % 8
+  ];
+}
+const moon = moonName(now);
+
+// ── 目録（4ページ） ──
+const DESTS = [
+  { key: "concept", href: "/concept", jp: "コンセプト", en: "Concept", lat: "lumen", roman: "Ⅰ", line: "この場所の成り立ちと、三つの軌道。" },
+  { key: "timeline", href: "/timeline", jp: "年表", en: "Chronicle", lat: "chronica", roman: "Ⅱ", line: "歩んできた歴史を、ひとつの星座として。" },
+  { key: "calendar", href: "/calendar", jp: "カレンダー", en: "Almanac", lat: "almanac", roman: "Ⅲ", line: "これからの集いを、月の満ち欠けとともに。" },
+  { key: "roles", href: "/roles", jp: "ロール", en: "Roles", lat: "ordo", roman: "Ⅳ", line: "星の等級になぞらえた、居場所。" },
 ];
 
-const cfg = [
-  { dur: "30s", delay: "-4s" },
-  { dur: "46s", delay: "-22s" },
-  { dur: "64s", delay: "-40s" },
+// ── お知らせ（当面プレースホルダー） ──
+const dispatches = [
+  { date: "2026.06.10", glyph: "✦", tag: "更新", pin: true, title: "LUXEL、星の観測所としてリニューアル", body: "ログインから本体まで、世界観をひとつの夜空に統一しました。新しい星図ナビから、それぞれの場所をめぐってみてください。" },
+  { date: "2026.06.06", glyph: "☾", tag: "定例", pin: false, title: "新月の観測会 — 今月いちばん暗い夜に", body: "21:00、ボイスチャンネルに集合。静かに星を読みながら語らう、月例の集いです。途中参加・退出は自由に。" },
+  { date: "2026.05.28", glyph: "✶", tag: "システム", pin: false, title: "bot『Astra』を定期更新しました", body: "ロール付与まわりの調整を行いました。気になる挙動を見つけたら、観測者までそっとお知らせください。" },
+  { date: "2026.05.20", glyph: "✧", tag: "歓迎", pin: false, title: "満月祭 — 新メンバー歓迎の灯", body: "月いちの大きな集い。新しく辿り着いた巡礼者を、満月の下でお迎えしました。次の灯は来月の満月に。" },
 ];
 ---
 
-<LuxelShell title="LUXEL — コンセプト" active="concept" isAdmin={userIsAdmin}>
-  <div class="page page-in">
-    <div class="concept-hero">
-      <div class="mini-core" aria-hidden="true">
-        <div class="mc-halo"></div>
-        <div class="mc-spike h"></div>
-        <div class="mc-spike v"></div>
-        <div class="mc-spike d1"></div>
-        <div class="mc-spike d2"></div>
-        <div class="mc-nucleus"></div>
+<LuxelShell title="LUXEL — 今夜の空" active="tonight" isAdmin={userIsAdmin}>
+  <div class="page page-wide page-in">
+    <header class="tn-hero">
+      <div class="tn-eye">
+        <span class="tn-eye-line"></span>Tonight · 観測所だより<span class="tn-eye-line"></span>
       </div>
-      <p class="concept-motto">lumen in tenebris</p>
-      <h1 class="concept-head">
-        暗闇の中に、<br />ただ<span class="accent">ひとつの光</span>を。
-      </h1>
-    </div>
+      <h1 class="tn-greet">{greet}。</h1>
+      <p class="tn-epigraph"><i>fiat lux</i> — 光あれ。そして、光があった。</p>
+      <div class="tn-meta">
+        <span class="tnm-date">{dateStr}</span>
+        <span class="tnm-sep"></span>
+        <span class="tnm-moon"><span class="tnm-disc"></span>{moon}</span>
+      </div>
+    </header>
 
-    <div class="manifesto">
-      <p class="mf-lead">
-        LUXEL は、夜空に灯る小さな天文台のようなコミュニティ。
-      </p>
-      <p class="mf-body">
-        ここでは、急いで答えを出すことを求めません。星の位置を測るように、ゆっくりと言葉を交わし、
-        それぞれの興味や物語が静かに重なっていく。ひとつの光を囲んで、近い人も遠い人も、それぞれの距離で集う——
-        この場所が、あなたの夜にとって小さな目印になりますように。
-      </p>
-    </div>
-
-    <section class="orrery-block">
-      <div class="ob-eyebrow"><span class="obe-line"></span>三つの軌道<span class="obe-line"></span></div>
-      <div class="orrery-wrap">
-        <div class="orrery" role="group" aria-label="三つの軌道" data-orrery>
-          <div class="orr-ring r1"></div>
-          <div class="orr-ring r2"></div>
-          <div class="orr-ring r3"></div>
-
-          <div class="orr-core" aria-hidden="true">
-            <span class="oc-halo"></span>
-            <span class="oc-spike h"></span>
-            <span class="oc-spike v"></span>
-            <span class="oc-nucleus"></span>
-          </div>
-
-          {pillars.map((p, i) => (
-            <div
-              class:list={["orr-orbit", `o${i + 1}`, { hot: i === 0 }]}
-              style={`--dur:${cfg[i].dur};--delay:${cfg[i].delay}`}
-              data-orbit={i}
-            >
-              <div class="orr-spin">
-                <div class="orr-body">
-                  <button
-                    class:list={["ob", { active: i === 0 }]}
-                    data-body={i}
-                    aria-label={p.title}
-                  >
-                    <span class="ob-inner" style={`--dur:${cfg[i].dur};--delay:${cfg[i].delay}`}>
-                      <span class="ob-dot"></span>
-                      <span class="ob-no">{p.no}</span>
-                    </span>
-                  </button>
+    <section class="aix-block">
+      <div class="sp-eyebrow"><span class="spe-line"></span>目録 · The Atlas<span class="spe-line"></span></div>
+      <div class="atlas-index">
+        {DESTS.map((d, i) => (
+          <a class={`aix-card aix-${d.key}`} href={d.href}>
+            <div class="aix-plate">
+              <span class="aix-tick tl"></span><span class="aix-tick tr"></span>
+              <span class="aix-tick bl"></span><span class="aix-tick br"></span>
+              <span class="aix-pid">PL. {d.roman}</span>
+              {d.key === "concept" && (
+                <svg class="aix-motif" viewBox="0 0 120 80" aria-hidden="true">
+                  <ellipse class="m-orbit" cx="60" cy="40" rx="38" ry="22" />
+                  <ellipse class="m-orbit faint" cx="60" cy="40" rx="22" ry="13" />
+                  <circle class="m-body" cx="98" cy="40" r="2.6" />
+                  <circle class="m-body" cx="38" cy="27" r="1.8" />
+                  <line class="m-spike" x1="42" y1="40" x2="78" y2="40" />
+                  <line class="m-spike" x1="60" y1="26" x2="60" y2="54" />
+                  <circle class="m-sun" cx="60" cy="40" r="5.5" />
+                </svg>
+              )}
+              {d.key === "timeline" && (
+                <svg class="aix-motif" viewBox="0 0 120 80" aria-hidden="true">
+                  <polyline class="m-link" points="20,54 42,26 68,46 98,22" />
+                  <circle class="m-star" cx="20" cy="54" r="2.6" />
+                  <circle class="m-star" cx="42" cy="26" r="4" />
+                  <circle class="m-star" cx="68" cy="46" r="2.4" />
+                  <circle class="m-star nova" cx="98" cy="22" r="4.6" />
+                </svg>
+              )}
+              {d.key === "calendar" && (
+                <div class="aix-motif moon-motif" aria-hidden="true">
+                  <span class="m-moon"></span>
+                  <span class="m-mstar a"></span><span class="m-mstar b"></span><span class="m-mstar c"></span>
                 </div>
-              </div>
+              )}
+              {d.key === "roles" && (
+                <svg class="aix-motif" viewBox="0 0 120 80" aria-hidden="true">
+                  <line class="m-ladder" x1="22" y1="60" x2="100" y2="20" />
+                  <circle class="m-mag" cx="24" cy="58" r="6" />
+                  <circle class="m-mag" cx="44" cy="48" r="4.6" />
+                  <circle class="m-mag" cx="63" cy="39" r="3.6" />
+                  <circle class="m-mag" cx="82" cy="29" r="2.8" />
+                  <circle class="m-mag" cx="100" cy="20" r="2.1" />
+                </svg>
+              )}
             </div>
-          ))}
-        </div>
-
-        <div class="orr-readout" data-readout>
-          <div class="or-no"><span data-or-no>{pillars[0].no}</span> · <span class="or-lat" data-or-lat>{pillars[0].lat}</span></div>
-          <div class="or-title" data-or-title>{pillars[0].title}</div>
-          <p class="or-body" data-or-body>{pillars[0].body}</p>
-          <div class="or-tabs">
-            {pillars.map((p, i) => (
-              <button class:list={["ort", { on: i === 0 }]} data-tab={i}>
-                {p.title}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div class="aix-body">
+              <div class="aix-no">{String(i + 1).padStart(2, "0")} · <span class="aix-lat">{d.lat}</span></div>
+              <div class="aix-title">{d.jp}<span class="aix-en">{d.en}</span></div>
+              <p class="aix-line">{d.line}</p>
+              <span class="aix-open">ひらく<span class="spo-arrow">→</span></span>
+            </div>
+          </a>
+        ))}
       </div>
     </section>
 
-    <p class="concept-foot">
-      <span class="cf-eye">はじめての方へ</span>
-      「ロール」で自分に合った居場所を選び、「年表」でこれまでの歩みを、
-      「カレンダー」でこれからの集いを覗いてみてください。
-    </p>
+    <section class="tn-lower">
+      <div class="tn-dispatch">
+        <div class="tn-sec-h"><span class="tnh-jp">お知らせ</span><span class="tnh-en">Dispatches</span></div>
+        <div class="disp-list" data-disp-list>
+          {dispatches.map((m, i) => (
+            <div class:list={["disp-row", { open: i === 0, pin: m.pin }]} data-disp={i}>
+              <div class="disp-glyph">{m.glyph}</div>
+              <div class="disp-main">
+                <div class="disp-top">
+                  <span class="disp-date">{m.date}</span>
+                  <span class="disp-tag">{m.tag}</span>
+                  {m.pin && <span class="disp-pin">PINNED</span>}
+                </div>
+                <div class="disp-title">{m.title}</div>
+                <div class="disp-body"><p>{m.body}</p></div>
+              </div>
+              <span class="disp-chev" aria-hidden="true"></span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <aside class="tn-aside">
+        <div class="tn-sec-h"><span class="tnh-jp">今夜の集い</span><span class="tnh-en">Next gathering</span></div>
+        {next ? (
+          <a class:list={["gather-card", { warm: next.warm }]} href="/calendar">
+            <div class="gc-moon" aria-hidden="true"></div>
+            <div class="gc-count">
+              {next.days === 0 ? (
+                <span class="gc-today">今夜</span>
+              ) : (
+                <><span class="gc-num">{next.days}</span><span class="gc-unit">日後</span></>
+              )}
+            </div>
+            <div class="gc-title">{next.title}</div>
+            <div class="gc-meta">{next.m}月{next.d}日（{next.dow}） · {next.time}</div>
+            <div class="gc-go">カレンダーで見る<span class="spo-arrow">→</span></div>
+          </a>
+        ) : (
+          <div class="tn-soon-empty">予定された集いはまだありません。</div>
+        )}
+
+        {rest.length > 0 && (
+          <div class="tn-soon">
+            <div class="tnq-h">このあとの予定</div>
+            {rest.map((e) => (
+              <a class="soon-row" href="/calendar">
+                <span class="soon-date">{e.m}/{e.d}</span>
+                <span class="soon-title">{e.title}</span>
+                <span class="soon-when">{e.days}日後</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </aside>
+    </section>
+
+    <p class="tn-foot">lumen in tenebris — 暗闇の中に、ひとつの光を。</p>
   </div>
 
-  <script is:inline define:vars={{ pillars }}>
-    (function () {
-      const orrery = document.querySelector("[data-orrery]");
-      const readout = document.querySelector("[data-readout]");
-      if (!orrery || !readout) return;
-      const noEl = readout.querySelector("[data-or-no]");
-      const latEl = readout.querySelector("[data-or-lat]");
-      const titleEl = readout.querySelector("[data-or-title]");
-      const bodyEl = readout.querySelector("[data-or-body]");
-      const orbits = Array.from(document.querySelectorAll("[data-orbit]"));
-      const bodies = Array.from(document.querySelectorAll("[data-body]"));
-      const tabs = Array.from(document.querySelectorAll("[data-tab]"));
-      let active = 0;
-
-      function setActive(i) {
-        if (i === active) return;
-        active = i;
-        const p = pillars[i];
-        noEl.textContent = p.no;
-        latEl.textContent = p.lat;
-        titleEl.textContent = p.title;
-        bodyEl.textContent = p.body;
-        orbits.forEach((o, k) => o.classList.toggle("hot", k === i));
-        bodies.forEach((b, k) => b.classList.toggle("active", k === i));
-        tabs.forEach((t, k) => t.classList.toggle("on", k === i));
-        readout.style.animation = "none";
-        void readout.offsetWidth;
-        readout.style.animation = "";
-      }
-
-      bodies.forEach((b, i) => {
-        b.addEventListener("mouseenter", () => setActive(i));
-        b.addEventListener("focus", () => setActive(i));
-        b.addEventListener("click", () => setActive(i));
+  <script>
+    // お知らせ: 一度に1件だけ open
+    const list = document.querySelector<HTMLElement>("[data-disp-list]");
+    if (list) {
+      const rows = Array.from(list.querySelectorAll<HTMLElement>("[data-disp]"));
+      rows.forEach((row) => {
+        row.addEventListener("click", () => {
+          const wasOpen = row.classList.contains("open");
+          rows.forEach((r) => r.classList.remove("open"));
+          if (!wasOpen) row.classList.add("open");
+        });
       });
-      tabs.forEach((t, i) => {
-        t.addEventListener("mouseenter", () => setActive(i));
-        t.addEventListener("click", () => setActive(i));
-      });
-    })();
+    }
   </script>
 </LuxelShell>

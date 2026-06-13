@@ -1,0 +1,116 @@
+---
+/**
+ * /faq — FAQ（よくある質問）
+ *
+ * カテゴリ（章）ごとのアコーディオン Q&A。複数同時 open 可、初期は最初の1問が open。
+ * cats はプレースホルダー。後で CMS / 設定ファイルへ外出し。
+ * チャンネル名（#入口 等）は実環境に合わせて差し替えること。
+ */
+
+import LuxelShell from "../layouts/LuxelShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../lib/auth/helpers";
+import { getMemberRoleAliases } from "../lib/repos/membership";
+import { isAdmin } from "../lib/auth/permissions";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+const userIsAdmin = isAdmin(aliases);
+
+const cats = [
+  {
+    rn: "I", jp: "はじめに", en: "Getting started",
+    qa: [
+      { q: "LUXEL ってどんな場所？", a: "静けさを大切にした、星の観測所のような小さなコミュニティです。賑やかさより、ひとりの夜にそっと灯がともるような居心地をめざしています。" },
+      { q: "どうやって参加するの？", a: "招待リンクから入ったら、まず #入口 で簡単な規約に目を通し、リアクションでロールを受け取ってください。それでチャンネルが開きます。" },
+      { q: "入ったら、まず何をすればいい？", a: "#自己紹介 でひとことだけ挨拶を。あとは #ロール案内 で興味のロールを選び、「今夜の空」をのぞいてみてください。急がなくて大丈夫です。" },
+    ],
+  },
+  {
+    rn: "II", jp: "場のすごし方", en: "Etiquette",
+    qa: [
+      { q: "どんな雰囲気？気をつけることは？", a: "穏やかさが基本です。誹謗中傷・無断の宣伝・しつこいメンションは控えめに。意見が違っても、声を荒げないこと——それだけ守ってもらえれば十分です。" },
+      { q: "「観測時間」って何ですか？", a: "23:00〜翌7:00のことです。眠っている人もいるので、この時間帯は通知の大きい投稿や長い連投をひかえ、小声で過ごす習慣にしています。" },
+    ],
+  },
+  {
+    rn: "III", jp: "ロールと権限", en: "Roles",
+    qa: [
+      { q: "ロールはどうやって決まる？", a: "滞在の長さと関わりに応じて、星の等級になぞらえた居場所があります。詳しくは「ロール」のページに一覧があります。" },
+      { q: "ロールが付かない／消えてしまった", a: "まず #入口 と #ロール案内 で受け取り直してみてください。bot『Astra』が再付与します。それでも直らなければ、運営に声をかけてください。" },
+    ],
+  },
+  {
+    rn: "IV", jp: "催し と bot", en: "Events & bot",
+    qa: [
+      { q: "イベントはどこで分かる？", a: "「カレンダー」のページと #告知 にまとまっています。開催が近づくと Astra が前もって知らせてくれます。" },
+      { q: "bot『Astra』は何をしてくれる？", a: "ロールの付与、告知、催しのリマインドなどを担う観測補助botです。使えるコマンドは /help で確認できます。" },
+    ],
+  },
+  {
+    rn: "V", jp: "こまったとき", en: "When stuck",
+    qa: [
+      { q: "チャンネルが見えません", a: "多くの場合、ロールがまだ付いていないだけです。#入口 で受け取ると表示されます。それでも見えないときは運営へ。" },
+      { q: "運営に連絡したい", a: "#相談 に書き込むか、モデレーター(◇マークの人)へ気軽にDMしてください。どんな小さなことでも構いません。" },
+    ],
+  },
+];
+---
+
+<LuxelShell title="LUXEL — FAQ" active="faq" isAdmin={userIsAdmin}>
+  <div class="page page-in">
+    <header class="phead">
+      <div class="eyebrow">Help</div>
+      <h1 class="ptitle">FAQ</h1>
+      <div class="psub">よくある質問</div>
+      <div class="phead-rule"></div>
+    </header>
+
+    <p class="faq-intro">
+      はじめての方からよく寄せられる問いを、いくつかまとめました。
+      ここに答えが見つからないときは、いつでも気軽にたずねてください。
+    </p>
+
+    <div class="faq">
+      {cats.map((cat, ci) => (
+        <section class="faq-cat">
+          <div class="fc-head">
+            <span class="fc-rn">{cat.rn}</span>
+            <h2 class="fc-name">{cat.jp}</h2>
+            <span class="fc-en">{cat.en}</span>
+          </div>
+          {cat.qa.map((item, qi) => (
+            <div class:list={["faq-item", { open: ci === 0 && qi === 0 }]}>
+              <button class="faq-q" aria-expanded={ci === 0 && qi === 0 ? "true" : "false"}>
+                <span class="q-text">{item.q}</span>
+                <span class="q-mark" aria-hidden="true"></span>
+              </button>
+              <div class="faq-a"><div><p>{item.a}</p></div></div>
+            </div>
+          ))}
+        </section>
+      ))}
+    </div>
+
+    <div class="faq-foot">
+      <span class="ff-dot" aria-hidden="true"></span>
+      <p>解決しないことがあれば、<em>#相談</em> かモデレーターへ。いつでも、ここで待っています。</p>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll<HTMLElement>(".faq-item").forEach((item) => {
+      const btn = item.querySelector<HTMLButtonElement>(".faq-q");
+      btn?.addEventListener("click", () => {
+        const open = item.classList.toggle("open");
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+    });
+  </script>
+</LuxelShell>
