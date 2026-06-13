@@ -8,9 +8,10 @@
  *
  * Props:
  *   title   : <title>
- *   active  : "concept" | "timeline" | "calendar" | "roles"
+ *   active  : "tonight" | "concept" | "timeline" | "calendar" | "roles" | "faq"
  *   isAdmin : 管理リンクを副ナビに出すか
  *
+ * レールは全画面サイズでドロワー（既定は隠れ、トップバーの「LUXEL」で開閉）。
  * 月相はサーバーサイドで計算してレールに表示。星の散布とドロワー開閉は client。
  */
 
@@ -18,17 +19,19 @@ import "../styles/luxel.css";
 
 interface Props {
   title: string;
-  active: "concept" | "timeline" | "calendar" | "roles";
+  active: "tonight" | "concept" | "timeline" | "calendar" | "roles" | "faq";
   isAdmin?: boolean;
 }
 
 const { title, active, isAdmin = false } = Astro.props;
 
 const NAV = [
-  { key: "concept", href: "/", jp: "コンセプト", en: "Concept" },
+  { key: "tonight", href: "/", jp: "今夜の空", en: "Tonight" },
+  { key: "concept", href: "/concept", jp: "コンセプト", en: "Concept" },
   { key: "timeline", href: "/timeline", jp: "年表", en: "Chronicle" },
   { key: "calendar", href: "/calendar", jp: "カレンダー", en: "Almanac" },
   { key: "roles", href: "/roles", jp: "ロール", en: "Roles" },
+  { key: "faq", href: "/faq", jp: "FAQ", en: "Questions" },
 ] as const;
 
 // 副ナビ: 幽世セクションへの外部リンク（当面そのまま）
@@ -81,12 +84,12 @@ const moon = moonName();
       <span class="fm bl"></span><span class="fm br"></span>
     </div>
 
-    <!-- モバイルトップバー -->
+    <!-- トップバー（常時表示・LUXEL かバーガーでレールを開閉） -->
     <header class="topbar">
       <button class="burger" data-burger aria-label="メニュー" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
-      <span class="topbar-word">LUXEL</span>
+      <button class="topbar-word" data-burger aria-label="ナビゲーションを開く">LUXEL</button>
       <span style="width:40px"></span>
     </header>
 
@@ -169,20 +172,31 @@ const moon = moonName();
         field.appendChild(frag);
       }
 
-      // モバイルドロワー開閉
+      // レール開閉（バーガー or LUXEL クリック / scrim or Esc で閉じる）
       const rail = document.querySelector<HTMLElement>("[data-rail]");
       const scrim = document.querySelector<HTMLElement>("[data-scrim]");
-      const burger = document.querySelector<HTMLButtonElement>("[data-burger]");
+      const triggers = document.querySelectorAll<HTMLElement>("[data-burger]");
       function setMenu(open: boolean) {
         rail?.classList.toggle("open", open);
         scrim?.classList.toggle("show", open);
         scrim?.classList.toggle("open", open);
-        burger?.setAttribute("aria-expanded", open ? "true" : "false");
+        triggers.forEach((t) =>
+          t.setAttribute("aria-expanded", open ? "true" : "false"),
+        );
       }
-      burger?.addEventListener("click", () =>
-        setMenu(!rail?.classList.contains("open")),
+      triggers.forEach((t) =>
+        t.addEventListener("click", () =>
+          setMenu(!rail?.classList.contains("open")),
+        ),
       );
       scrim?.addEventListener("click", () => setMenu(false));
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") setMenu(false);
+      });
+      // レール内のリンクを押したら閉じる（同一ページ内リンク等で残らないように）
+      rail?.querySelectorAll("a").forEach((a) =>
+        a.addEventListener("click", () => setMenu(false)),
+      );
     </script>
   </body>
 </html>

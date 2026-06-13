@@ -1,0 +1,184 @@
+---
+/**
+ * /concept — LUXEL コンセプト
+ *
+ * 理念を「ひとつの光を周回する天体（オラリー）」として体験させる。
+ * オラリー体 / タブで active を切替 → 読み出しが連動（client script）。
+ * （旧 / から移設。ホームは今夜の空 /tonight = / に変更）
+ */
+
+import LuxelShell from "../layouts/LuxelShell.astro";
+import { createDb } from "@ayakashi/db/client";
+import { getEnv } from "../lib/auth/helpers";
+import { getMemberRoleAliases } from "../lib/repos/membership";
+import { isAdmin } from "../lib/auth/permissions";
+
+if (!Astro.locals.session) {
+  return Astro.redirect("/login");
+}
+
+const env = getEnv(Astro.locals);
+const db = createDb(env.DATABASE_URL);
+const userId = (Astro.locals.session.user as { id?: string } | undefined)?.id;
+const aliases = userId ? await getMemberRoleAliases(db, userId) : [];
+const userIsAdmin = isAdmin(aliases);
+
+const pillars = [
+  {
+    no: "01",
+    title: "ひとつの灯",
+    lat: "lumen",
+    body: "暗がりにあって、まず最初に灯る光でありたい。誰かが迷い込んだ夜に、ここを目印にできるように。",
+  },
+  {
+    no: "02",
+    title: "観測する場所",
+    lat: "specula",
+    body: "騒がしさより、静けさを。流れて消える言葉ではなく、星を読むように時間をかけて語らえる場所に。",
+  },
+  {
+    no: "03",
+    title: "巡る軌道",
+    lat: "orbita",
+    body: "誰もが自分の軌道を持っている。近づき、離れ、また巡り合う。その距離ごと心地よくいられるように。",
+  },
+];
+
+const cfg = [
+  { dur: "30s", delay: "-4s" },
+  { dur: "46s", delay: "-22s" },
+  { dur: "64s", delay: "-40s" },
+];
+---
+
+<LuxelShell title="LUXEL — コンセプト" active="concept" isAdmin={userIsAdmin}>
+  <div class="page page-in">
+    <div class="concept-hero">
+      <div class="mini-core" aria-hidden="true">
+        <div class="mc-halo"></div>
+        <div class="mc-spike h"></div>
+        <div class="mc-spike v"></div>
+        <div class="mc-spike d1"></div>
+        <div class="mc-spike d2"></div>
+        <div class="mc-nucleus"></div>
+      </div>
+      <p class="concept-motto">lumen in tenebris</p>
+      <h1 class="concept-head">
+        暗闇の中に、<br />ただ<span class="accent">ひとつの光</span>を。
+      </h1>
+    </div>
+
+    <div class="manifesto">
+      <p class="mf-lead">
+        LUXEL は、夜空に灯る小さな天文台のようなコミュニティ。
+      </p>
+      <p class="mf-body">
+        ここでは、急いで答えを出すことを求めません。星の位置を測るように、ゆっくりと言葉を交わし、
+        それぞれの興味や物語が静かに重なっていく。ひとつの光を囲んで、近い人も遠い人も、それぞれの距離で集う——
+        この場所が、あなたの夜にとって小さな目印になりますように。
+      </p>
+    </div>
+
+    <section class="orrery-block">
+      <div class="ob-eyebrow"><span class="obe-line"></span>三つの軌道<span class="obe-line"></span></div>
+      <div class="orrery-wrap">
+        <div class="orrery" role="group" aria-label="三つの軌道" data-orrery>
+          <div class="orr-ring r1"></div>
+          <div class="orr-ring r2"></div>
+          <div class="orr-ring r3"></div>
+
+          <div class="orr-core" aria-hidden="true">
+            <span class="oc-halo"></span>
+            <span class="oc-spike h"></span>
+            <span class="oc-spike v"></span>
+            <span class="oc-nucleus"></span>
+          </div>
+
+          {pillars.map((p, i) => (
+            <div
+              class:list={["orr-orbit", `o${i + 1}`, { hot: i === 0 }]}
+              style={`--dur:${cfg[i].dur};--delay:${cfg[i].delay}`}
+              data-orbit={i}
+            >
+              <div class="orr-spin">
+                <div class="orr-body">
+                  <button
+                    class:list={["ob", { active: i === 0 }]}
+                    data-body={i}
+                    aria-label={p.title}
+                  >
+                    <span class="ob-inner" style={`--dur:${cfg[i].dur};--delay:${cfg[i].delay}`}>
+                      <span class="ob-dot"></span>
+                      <span class="ob-no">{p.no}</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div class="orr-readout" data-readout>
+          <div class="or-no"><span data-or-no>{pillars[0].no}</span> · <span class="or-lat" data-or-lat>{pillars[0].lat}</span></div>
+          <div class="or-title" data-or-title>{pillars[0].title}</div>
+          <p class="or-body" data-or-body>{pillars[0].body}</p>
+          <div class="or-tabs">
+            {pillars.map((p, i) => (
+              <button class:list={["ort", { on: i === 0 }]} data-tab={i}>
+                {p.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="concept-foot">
+      <span class="cf-eye">はじめての方へ</span>
+      「ロール」で自分に合った居場所を選び、「年表」でこれまでの歩みを、
+      「カレンダー」でこれからの集いを覗いてみてください。
+    </p>
+  </div>
+
+  <script is:inline define:vars={{ pillars }}>
+    (function () {
+      const orrery = document.querySelector("[data-orrery]");
+      const readout = document.querySelector("[data-readout]");
+      if (!orrery || !readout) return;
+      const noEl = readout.querySelector("[data-or-no]");
+      const latEl = readout.querySelector("[data-or-lat]");
+      const titleEl = readout.querySelector("[data-or-title]");
+      const bodyEl = readout.querySelector("[data-or-body]");
+      const orbits = Array.from(document.querySelectorAll("[data-orbit]"));
+      const bodies = Array.from(document.querySelectorAll("[data-body]"));
+      const tabs = Array.from(document.querySelectorAll("[data-tab]"));
+      let active = 0;
+
+      function setActive(i) {
+        if (i === active) return;
+        active = i;
+        const p = pillars[i];
+        noEl.textContent = p.no;
+        latEl.textContent = p.lat;
+        titleEl.textContent = p.title;
+        bodyEl.textContent = p.body;
+        orbits.forEach((o, k) => o.classList.toggle("hot", k === i));
+        bodies.forEach((b, k) => b.classList.toggle("active", k === i));
+        tabs.forEach((t, k) => t.classList.toggle("on", k === i));
+        readout.style.animation = "none";
+        void readout.offsetWidth;
+        readout.style.animation = "";
+      }
+
+      bodies.forEach((b, i) => {
+        b.addEventListener("mouseenter", () => setActive(i));
+        b.addEventListener("focus", () => setActive(i));
+        b.addEventListener("click", () => setActive(i));
+      });
+      tabs.forEach((t, i) => {
+        t.addEventListener("mouseenter", () => setActive(i));
+        t.addEventListener("click", () => setActive(i));
+      });
+    })();
+  </script>
+</LuxelShell>
